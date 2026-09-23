@@ -12,10 +12,6 @@ some of those values and writes others. Attach a behavior and the system
 gains an ability. Detach it and the ability is gone, along with everything
 it wrote.
 
-Nomic is a revision of [Cards](https://github.com/paulsonnentag/cards). It keeps the
-model of scoped, attributed, live values and drops boards, views,
-documents, and stacked stickers.
-
 ## Concepts
 
 Nomic has three concepts: environments, behaviors, and records.
