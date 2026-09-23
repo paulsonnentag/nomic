@@ -18,7 +18,7 @@ documents, and stacked stickers.
 
 ## Concepts
 
-Nomic has four concepts: environments, behaviors, records, and examples.
+Nomic has three concepts: environments, behaviors, and records.
 
 An **environment** is a scoped set of named values. You create a root
 environment and fork children from it. A child reads every value that its
@@ -32,7 +32,8 @@ environment, it has an effect on that environment: it reads values,
 subscribes to them, and puts values of its own. When you detach the
 behavior, its values are dropped and its effect ends. Behaviors are
 granular. *Drag shapes*, *Select shapes*, and *Resize shapes* are three
-behaviors, not one.
+behaviors, not one. A behavior's description is Markdown that says what the
+behavior does, for a person and for a model that might write or edit it.
 
 A **record** is the serialized form of an environment: a JSON object whose
 fields are the environment's declared values. One field, `behaviors`, lists
@@ -40,12 +41,6 @@ the behaviors to attach and whether each one is on. Loading a record into an
 environment makes the record's fields *be* the environment's values, so that
 changing a value changes the record. A field of a record can itself be a
 record. That is how environments nest.
-
-An **example** is a recording that a behavior's description embeds. It is
-the record as it was, a log of the inputs that arrived during an interaction,
-and the moments to show. Replaying an example loads the record into a fresh
-environment, plays the inputs, and shows the behavior acting. Replaying it
-with the behavior switched off shows the difference.
 
 ## Terms
 
@@ -71,13 +66,11 @@ the names.
 | declared value | A value that a record names. It persists. |
 | runtime value | A value that a behavior put. It is dropped on detach and never serialized. |
 | input | A runtime value written from outside the system, such as `pointer`. |
-| example | A recording: a record at one moment, the inputs that followed, and the frames to show. |
 
 ## How it works
 
 This section describes environments, reading and writing, behaviors,
-records, inputs, selection, descriptions and examples, the inspector, and
-persistence.
+records, inputs, the inspector, and persistence.
 
 ### Environments and forks
 
@@ -181,11 +174,7 @@ function. A behavior module exports it as the default export:
 ```ts
 export default {
   title: "Drag shapes",
-  description: `
-Moves the selected shape while the pointer button is held.
-
-![Drag a rectangle](example:drag-rectangle)
-`,
+  description: "Moves the selected shape while the pointer button is held.",
   mount(env: Environment) {
     …
     return () => { … }         // optional teardown; your values are dropped for you
@@ -302,120 +291,16 @@ mount(env: Environment) {
 env.get<Pointer>("pointer").subscribe((p) => { … })
 ```
 
-Hit testing is each behavior's job. *Select* tests `pointer` against the
-geometry in `shapes`. *Resize* tests it against the handles of the selected
-shape. The environment holds data, not a scene graph.
-
 `pointer` is a value, so a slow subscriber sees the latest state, not every
 intermediate one. A behavior that needs every sample, such as a pen, keeps
 the stroke in progress itself and appends on each change it sees.
-
-Making input a value is what makes examples possible. Recording is a
-subscribe. Replay is a put.
-
-### Selection
-
-Environments that have things to select declare one key, `selected`. It
-holds a reference to the selected thing: the id of a shape, or `null`.
-Behaviors that act on the selection read `selected` and look the thing up.
-Behaviors that select change it.
-
-```ts
-// Select, on pointer down over a shape
-selected.change(() => id)
-
-// Drag, while the button is held
-shapes.change((s) => { s[selected.value].x += dx; s[selected.value].y += dy })
-```
-
-There is no gesture arbitration. Granular behaviors that respond to the same
-press partition the space by hit testing: *Drag* acts on a press inside the
-selected shape's body, *Resize* on a press inside one of its handles. Two
-behaviors that hit the same region are a bug in one of them, and the
-inspector shows which one moved the value.
-
-### Descriptions and examples
-
-A description is Markdown in the behavior module. It says what the behavior
-does, for a person and for a model that might write or edit the behavior. It
-embeds examples with an image tag whose URL has the `example:` scheme:
-
-```md
-Moves the selected shape while the pointer button is held.
-
-![Drag a rectangle](example:drag-rectangle)
-```
-
-An example is recorded from a running system, not written by hand:
-
-```ts
-type Example = {
-  id: string
-  root: Record                      // deep copy of the record at t0
-  at: string[]                      // path into root to the behavior's entry, e.g. ["behaviors", "drag"]
-  inherited: { [key: Key]: Json }   // what root's environment saw from its parent, JSON only; not dom
-  input: Write[]                    // writes to the input keys during the recording
-  frames: number[]                  // the moments to show
-}
-type Write = { t: number; key: Key; value: Json }
-```
-
-Examples are stored in one record keyed by behavior URL, then by id. The
-shell persists it next to the root record.
-
-**Recording** takes the environment that the behavior is attached to, its
-record, and the keys that count as input:
-
-1. `root` is a deep copy of the record.
-2. `inherited` is the parent's `entries()`, keeping the values that are
-   JSON. `dom` is not kept; replay supplies its own. If the environment
-   inherits a value that is neither JSON nor `dom`, it can't be replayed on
-   its own. The recorder records from the parent instead, and `at` grows by
-   one segment. In practice, the recording root is the top-level environment
-   that the shell loaded.
-3. The recorder subscribes to each input key and appends a `Write` on every
-   change until you stop.
-4. `frames` defaults to every change of `pointer.buttons`. You can pick
-   others.
-
-**Replay** takes an example, an element, and a time:
-
-```ts
-const stage = createEnvironment()
-stage.put("dom", el)
-for (const [key, value] of Object.entries(example.inherited)) stage.put(key, value)
-const copy = wrap(structuredClone(example.root))
-stage.fork().load(copy)
-for (const w of example.input) if (w.t <= t) stage.put(w.key, w.value)
-```
-
-The inputs are put on the stage, so the loaded environment inherits them.
-Nothing touches the DOM during replay, so the *Pointer* behavior's listeners
-never fire, and the stage's `pointer` is what every behavior sees. To show
-the system without the behavior, switch it off in the copy before loading:
-
-```ts
-field(copy, ...example.at).change((b) => { b.on = false })
-```
-
-Toggling one flag in a copied record is how "the system minus this
-behavior" is expressed. There is no other mechanism.
-
-Two rules follow from this format:
-
-- **Declare what an example needs.** A key that an example depends on, such
-  as `selected`, is in the record. A behavior that put it as a default would
-  make it a runtime value, and it would be missing from `root`.
-- **What a behavior needs and can't serialize comes from a behavior in the
-  recording, or is `dom`.** A behavior that reads a library instance can be
-  recorded only from the environment where the instance is made, or above.
 
 ### The inspector
 
 The inspector shows one environment. It lists the environment's behaviors,
 from its `behaviors` value, each with a switch. Switching a behavior off
 changes the record, `load` detaches it, and its effect stops. Selecting a
-behavior shows its description, with each embedded example replayed live.
+behavior shows its description.
 
 There is no separate view of values. The environment is plumbing; the
 behaviors are what you look at. The shell finds the environment for a DOM
@@ -480,7 +365,7 @@ function createEnvironment(options?: {
 
 type Behavior = {
   title: string
-  description: string                                 // Markdown; embeds examples as ![alt](example:id)
+  description: string                                 // Markdown
   mount(environment: Environment): Teardown | void | Promise<Teardown | void>
 }
 type Teardown = () => void
@@ -489,18 +374,6 @@ type Teardown = () => void
 
 type Record = { [key: Key]: Json }                    // behaviors: Record<Id, Attachment> is reserved
 type Attachment = { url: string; on: boolean }
-
-// ---- examples ----------------------------------------------------------------
-
-type Example = {
-  id: string
-  root: Record
-  at: string[]
-  inherited: { [key: Key]: Json }
-  input: Write[]
-  frames: number[]
-}
-type Write = { t: number; key: Key; value: Json }
 
 // ---- helpers -----------------------------------------------------------------
 
@@ -547,227 +420,7 @@ The following rules summarize the semantics.
 11. **Behaviors come from the record's own `behaviors`.** The runtime never
     follows an inherited `behaviors` value.
 12. **Input is a value.** Everything from outside the system enters as a put
-    to a key by one behavior. Recording subscribes to it; replay puts it.
-
-## Example
-
-This example is the canvas from the sketch: a pen tool and a rectangle
-tool, shapes that you can select, drag, and resize, and an inspector that
-lists the behaviors.
-
-### The record
-
-```json
-{
-  "behaviors": {
-    "pointer":   { "url": "behavior:pointer",   "on": true },
-    "canvas":    { "url": "behavior:canvas",    "on": true },
-    "toolbar":   { "url": "behavior:toolbar",   "on": true },
-    "pen":       { "url": "behavior:pen",       "on": true },
-    "rectangle": { "url": "behavior:rectangle", "on": true },
-    "select":    { "url": "behavior:select",    "on": true },
-    "drag":      { "url": "behavior:drag",      "on": true },
-    "resize":    { "url": "behavior:resize",    "on": true }
-  },
-  "tool": "pen",
-  "selected": null,
-  "shapes": {
-    "s1": {
-      "behaviors": { "stroke": { "url": "behavior:stroke", "on": true } },
-      "points": [[120, 90], [140, 160], [110, 210], [80, 220]],
-      "color": "#0a7"
-    },
-    "s2": {
-      "behaviors": { "rect": { "url": "behavior:rect", "on": true } },
-      "x": 260, "y": 200, "w": 110, "h": 70,
-      "color": "#0a7"
-    }
-  }
-}
-```
-
-The canvas environment declares `tool`, `selected`, and `shapes`. Each
-shape is a record inside `shapes`, with its own `behaviors` and its own
-geometry.
-
-### The environments
-
-```
-root                         dom: the page
-└─ canvas        [record]    tool, selected, shapes; dom put by the shell
-   behaviors:
-     Pointer     writes pointer from DOM events on dom
-     Canvas      one child environment per entry of shapes; puts dom for each
-     Toolbar     renders the tool buttons into dom; changes tool
-     Pen         while tool is "pen": a press starts a stroke record in shapes, moves extend it
-     Rectangle   while tool is "rectangle": a press starts a rect record in shapes, moves size it
-     Select      on a press: hit-tests shapes, changes selected
-     Drag        while the button is held after a press inside the selected shape's body: changes its x, y
-     Resize      while the button is held after a press inside a handle of the selected shape: changes its w, h
-   ├─ s1         [record]    points, color; dom put by Canvas
-   │    Stroke   renders points into dom
-   └─ s2         [record]    x, y, w, h, color; dom put by Canvas
-        Rect     renders the rectangle into dom
-```
-
-`s1` and `s2` are forks of `canvas`, so they inherit `pointer`, `selected`,
-`shapes`, and `tool`. `dom` is put on each child and shadows the canvas's.
-
-### The flow of one drag
-
-The following steps trace one interaction:
-
-1. The user presses on the rectangle. *Pointer* puts `pointer: { x: 300,
-   y: 230, buttons: 1 }`.
-2. *Select* sees the change. It hit-tests `pointer` against every shape in
-   `shapes`, finds `s2`, and calls `selected.change(() => "s2")`. The
-   record's `selected` field is now `"s2"`.
-3. *Drag* sees the same change and notes the press position. It does
-   nothing yet.
-4. The user moves. *Pointer* puts `pointer: { x: 310, y: 236, buttons: 1
-   }`. *Drag* sees `buttons` held, checks that the press landed inside the
-   body of `shapes[selected]`, and calls `shapes.change((s) => { s.s2.x +=
-   10; s.s2.y += 6 })`.
-5. The change is to the record. The `s2` environment's declared `x` and `y`
-   are the same fields, so *Rect* sees the change and redraws. The
-   persistence subscription fires and writes the record to storage.
-6. The user releases. *Pointer* puts `buttons: 0`. *Drag* forgets the press.
-
-*Resize* watched the same presses and did nothing, because the press was in
-the body and not in a handle. *Pen* and *Rectangle* did nothing, because a
-press on an existing shape is not a press on empty canvas.
-
-### Toggling behaviors
-
-Switching *Drag* off in the inspector changes `behaviors.drag.on` in the
-record. `load` detaches *Drag*, and step 4 stops happening. Shapes still
-select and resize. Switching *Select* off leaves `selected` where it was,
-because `selected` is declared and *Select* only ever changed it; *Drag*
-keeps moving whatever was last selected. Switching *Pointer* off stops
-everything, because nothing writes `pointer`. Switching *Canvas* off closes
-the shape environments; the shapes stay in the record and come back when it
-is switched on.
-
-### The behaviors, sketched
-
-The following sketches show the behaviors. Descriptions are shown once and
-elided after that.
-
-```ts
-// canvas.ts — one environment per shape; owns their lifetimes
-export default {
-  title: "Canvas",
-  description: `
-Gives each shape its own environment and a place on the canvas.
-
-![A canvas with two shapes](example:canvas-two-shapes)
-`,
-  mount(env: Environment) {
-    const dom = env.get<HTMLElement>("dom").value
-    const shapes = env.get<Record<Id, Record>>("shapes")
-    const children = new Map<Id, { env: Environment; el: HTMLElement }>()
-    const stop = shapes.subscribe((all) => {
-      for (const id of Object.keys(all)) {
-        if (children.has(id)) continue
-        const el = dom.appendChild(document.createElement("div"))
-        const child = env.fork()
-        child.put("dom", el)
-        child.load(field(shapes, id))
-        children.set(id, { env: child, el })
-      }
-      for (const [id, c] of children) {
-        if (id in all) continue
-        c.env.close(); c.el.remove(); children.delete(id)
-      }
-    })
-    return () => { stop(); for (const c of children.values()) { c.env.close(); c.el.remove() } }
-  },
-} satisfies Behavior
-```
-
-```ts
-// select.ts — a press picks the topmost shape under the pointer
-export default {
-  …,
-  mount(env: Environment) {
-    const pointer = env.get<Pointer>("pointer")
-    const shapes = env.get<Record<Id, Shape>>("shapes")
-    const selected = env.get<Id | null>("selected")
-    let was = 0
-    return pointer.subscribe((p) => {
-      if (p.buttons && !was) {
-        const hit = Object.keys(shapes.value).reverse().find((id) => inside(shapes.value[id], p))
-        selected.change(() => hit ?? null)
-      }
-      was = p.buttons
-    })
-  },
-} satisfies Behavior
-```
-
-```ts
-// drag.ts — moves the selected shape while the button is held
-export default {
-  …,
-  mount(env: Environment) {
-    const pointer = env.get<Pointer>("pointer")
-    const shapes = env.get<Record<Id, Shape>>("shapes")
-    const selected = env.get<Id | null>("selected")
-    let press: { x: number; y: number; id: Id } | null = null
-    let last: Pointer | null = null
-    return pointer.subscribe((p) => {
-      if (p.buttons && !last?.buttons) {
-        press = { x: p.x, y: p.y, id: selected.value! }         // Select has run by the time we move
-      } else if (p.buttons && press && last) {
-        const id = selected.value
-        if (id && id === press.id && insideBody(shapes.value[id], press)) {
-          const dx = p.x - last.x, dy = p.y - last.y
-          shapes.change((s) => { s[id].x += dx; s[id].y += dy })
-        }
-      } else if (!p.buttons) {
-        press = null
-      }
-      last = p
-    })
-  },
-} satisfies Behavior
-```
-
-```ts
-// rect.ts — on a shape environment; draws the rectangle
-export default {
-  …,
-  mount(env: Environment) {
-    const dom = env.get<HTMLElement>("dom").value
-    const x = env.get<number>("x"), y = env.get<number>("y")
-    const w = env.get<number>("w"), h = env.get<number>("h")
-    const color = env.get<string>("color")
-    const draw = () => {
-      Object.assign(dom.style, {
-        position: "absolute", left: `${x.value}px`, top: `${y.value}px`,
-        width: `${w.value}px`, height: `${h.value}px`, border: `2px solid ${color.value}`,
-      })
-    }
-    const stops = [x, y, w, h, color].map((v) => v.subscribe(draw))
-    return () => stops.forEach((s) => s())
-  },
-} satisfies Behavior
-```
-
-### The shell
-
-The shell creates the root, loads the record, and shows the inspector:
-
-```ts
-const record = wrap<Record>(JSON.parse(localStorage.getItem("canvas") ?? seed))
-record.subscribe((r) => localStorage.setItem("canvas", JSON.stringify(r)))
-
-const root = createEnvironment({ import: (url) => modules[url]() })
-root.put("dom", stage)
-const canvas = root.fork()
-canvas.load(record)
-inspect(canvas, record)      // the behaviors list, with switches and descriptions
-```
+    to a key by one behavior. Every other behavior subscribes to it.
 
 ## Accepted trade-offs
 
@@ -784,8 +437,6 @@ The design accepts the following trade-offs:
   from records. Declare anything shared.
 - Inputs are values, so a slow subscriber can miss intermediate states. A
   behavior that needs every sample accumulates them itself.
-- Hit testing is per behavior. Two behaviors that claim the same region
-  both act. The fix is in the behaviors, not the runtime.
 - A behavior's values land on the environment it is attached to, not on its
   hand. A behavior can't keep a value private to itself; it forks for that.
 - Whoever holds the root can close anything below it. The defense is to not
@@ -809,9 +460,5 @@ The following topics are deferred:
   `reads(environment, id)` for the inspector's behavior page.
 - **Live `entries`.** `entries()` is a snapshot. The inspector re-queries it
   when `behaviors` changes. A live form may be wanted later.
-- **Recording UI.** How you start a recording, pick frames, and name an
-  example.
-- **Z-order.** `shapes` is a record, and behaviors use key order for
-  stacking. An `order` value may be needed.
 - **Isolation.** A fork that inherits nothing, for a behavior that shouldn't
   see its parent's values.
