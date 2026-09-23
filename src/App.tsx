@@ -1,6 +1,7 @@
-import { onCleanup } from "solid-js"
-import { createEnvironment, wrap, type Record } from "./runtime"
+import { createSignal, onCleanup, Show } from "solid-js"
+import { createEnvironment, wrap, type Environment, type Record } from "./runtime"
 import { importBehavior } from "./behaviors"
+import { environmentAt, lookup, register } from "./registry"
 import { seed } from "./seed"
 import { Inspector } from "./Inspector"
 
@@ -21,8 +22,27 @@ export function App() {
   const root = createEnvironment({ import: importBehavior })
   root.put("dom", stage)
   const canvas = root.fork()
+  register(stage, canvas, "canvas")
   canvas.load(record)
   onCleanup(() => root.close())
+
+  const [inspected, setInspected] = createSignal<Environment>(canvas)
+  const [inspecting, setInspecting] = createSignal(false)
+  const [hover, setHover] = createSignal<{ el: Element; rect: DOMRect } | undefined>()
+
+  let column!: HTMLDivElement
+  const move = (e: PointerEvent) => setHover(environmentAt(e.clientX, e.clientY, stage))
+  const pick = () => {
+    const h = hover()
+    if (h) setInspected(lookup(h.el)!.env)
+    setInspecting(false)
+    setHover(undefined)
+  }
+  // The highlight is positioned relative to the stage column.
+  const local = (r: DOMRect) => {
+    const c = column.getBoundingClientRect()
+    return { left: `${r.left - c.left}px`, top: `${r.top - c.top}px`, width: `${r.width}px`, height: `${r.height}px` }
+  }
 
   const reset = () => {
     localStorage.removeItem(STORAGE)
@@ -31,11 +51,27 @@ export function App() {
 
   return (
     <div class="app">
-      <div class="stage-column">
+      <div class="stage-column" ref={column}>
         {stage}
         <button class="reset" onClick={reset}>Reset canvas</button>
+        <Show when={inspecting()}>
+          <div class="inspect-layer" onPointerMove={move} onPointerLeave={() => setHover(undefined)} onClick={pick}>
+            <Show when={hover()}>
+              {(h) => (
+                <div class="inspect-box" style={local(h().rect)}>
+                  <span class="inspect-label">{lookup(h().el)?.label}</span>
+                </div>
+              )}
+            </Show>
+          </div>
+        </Show>
       </div>
-      <Inspector env={canvas} record={record} />
+      <Inspector
+        env={inspected()}
+        inspecting={inspecting()}
+        onInspect={() => setInspecting(!inspecting())}
+        onSelect={setInspected}
+      />
     </div>
   )
 }

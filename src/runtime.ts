@@ -378,10 +378,40 @@ class Env implements Environment {
     this.parent?.forks.delete(this)
   }
 
-  /** For the inspector: which behavior holds the slot at `key` here. */
-  ownerOf(key: Key): string | null | undefined {
-    return this.slots.get(key)?.owner
+  /** For the inspector: every key visible here, with where it comes from. */
+  describe(): SlotInfo[] {
+    const out: SlotInfo[] = []
+    const seen = new Set<Key>()
+    let env: Env | undefined = this
+    while (env) {
+      for (const [key, slot] of env.slots) {
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push({
+          key,
+          handle: slot.handle ? this.handleFor(key) : null,
+          own: env === this,
+          declared: slot.declared,
+          owner: slot.owner ? slot.owner.replace(/#\d+$/, "") : null,
+        })
+      }
+      env = env.parent
+    }
+    return out
   }
+}
+
+export type SlotInfo = {
+  key: Key
+  handle: Handle<unknown> | null // null is a hide
+  own: boolean // the slot is on this environment, not inherited
+  declared: boolean // named by the record
+  owner: string | null // the behavior that put it; null for the shell or a declared value
+}
+
+/** Every key visible in `env`, with where each one comes from. For inspectors. */
+export function describe(env: Environment): SlotInfo[] {
+  return (env as Env).describe()
 }
 
 /** The fork the runtime makes for one behavior. Its puts land on the environment. */

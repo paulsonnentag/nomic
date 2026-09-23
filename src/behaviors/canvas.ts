@@ -1,4 +1,5 @@
 import { field, type Behavior, type Environment, type Id, type Record } from "../runtime"
+import { graphicsBounds, register } from "../registry"
 
 // One environment per shape; owns their lifetimes.
 export default {
@@ -12,7 +13,7 @@ disappear from the canvas but stay in the record.
   mount(env: Environment) {
     const dom = env.get<HTMLElement>("dom").value
     const shapes = env.get<{ [id: Id]: Record }>("shapes")
-    const children = new Map<Id, { env: Environment; el: HTMLElement }>()
+    const children = new Map<Id, { env: Environment; el: HTMLElement; unregister: () => void }>()
 
     const stop = shapes.subscribe((all) => {
       for (const id of Object.keys(all)) {
@@ -21,23 +22,26 @@ disappear from the canvas but stay in the record.
         el.className = "shape"
         const child = env.fork()
         child.put("dom", el)
+        const unregister = register(el, child, `shapes.${id}`, () => graphicsBounds(el))
         child.load(field(shapes, id))
-        children.set(id, { env: child, el })
+        children.set(id, { env: child, el, unregister })
       }
       for (const [id, c] of children) {
         if (id in all) continue
-        c.env.close()
-        c.el.remove()
+        drop(c)
         children.delete(id)
       }
     })
 
+    const drop = (c: { env: Environment; el: HTMLElement; unregister: () => void }) => {
+      c.unregister()
+      c.env.close()
+      c.el.remove()
+    }
+
     return () => {
       stop()
-      for (const c of children.values()) {
-        c.env.close()
-        c.el.remove()
-      }
+      for (const c of children.values()) drop(c)
     }
   },
 } satisfies Behavior

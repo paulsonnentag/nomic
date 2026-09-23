@@ -23,9 +23,43 @@ body {
 /* ---- stage ---- */
 
 .stage-column {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* ---- inspect mode ---- */
+
+.inspect-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 640px;
+  height: 480px;
+  cursor: crosshair;
+  z-index: 10;
+}
+
+.inspect-box {
+  position: absolute;
+  border: 1.5px solid #3b6fe0;
+  background: rgba(74, 140, 247, 0.12);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.inspect-label {
+  position: absolute;
+  left: -1.5px;
+  bottom: 100%;
+  padding: 1px 6px;
+  background: #3b6fe0;
+  color: white;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  border-radius: 2px 2px 0 0;
+  white-space: nowrap;
 }
 
 .stage {
@@ -116,12 +150,134 @@ body {
   overflow: hidden;
 }
 
+.side {
+  width: 320px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #c8ccd2;
+  overflow: auto;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e3e6ea;
+}
+
+.inspect {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: white;
+  border: 1px solid #c8ccd2;
+  border-radius: 4px;
+  color: #666;
+  cursor: pointer;
+}
+
+.inspect.active {
+  color: white;
+  background: #3b6fe0;
+  border-color: #3b6fe0;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.breadcrumb button {
+  font: inherit;
+  padding: 2px 6px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: #666;
+  cursor: pointer;
+}
+
+.breadcrumb button:hover {
+  background: #f0f5ff;
+}
+
+.breadcrumb button.current {
+  color: #222;
+  font-weight: 600;
+}
+
+.breadcrumb .sep {
+  color: #aaa;
+}
+
+.side h3 {
+  margin: 0;
+  padding: 10px 14px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #888;
+}
+
+.state {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.state td {
+  padding: 5px 14px;
+  border-bottom: 1px solid #eef0f3;
+  vertical-align: top;
+}
+
+.state .key {
+  width: 40%;
+  color: #222;
+}
+
+.state .origin {
+  font-family: system-ui, sans-serif;
+  font-size: 11px;
+  color: #999;
+}
+
+.state .value {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #3b6fe0;
+}
+
+.state .expandable {
+  cursor: pointer;
+}
+
+.state .expandable:not(.open):hover {
+  text-decoration: underline dotted;
+}
+
+.state tr.inherited .key {
+  color: #777;
+}
+
+.state tr.hidden .value {
+  color: #aaa;
+}
+
 .behaviors {
-  width: 260px;
   margin: 0;
   padding: 0;
   list-style: none;
-  border-right: 1px solid #c8ccd2;
 }
 
 .behaviors li {
