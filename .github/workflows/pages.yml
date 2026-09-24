@@ -22,9 +22,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - run: yarn build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
       - uses: actions/configure-pages@v5

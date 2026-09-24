@@ -1,7 +1,5 @@
-// Bridges between Nomic handles and Solid signals.
-
 import { createSignal, onCleanup, type Accessor } from "solid-js"
-import type { Handle } from "./runtime"
+import type { Handle } from "@/core/types"
 
 /**
  * A signal that follows a handle. Values may be edited in place, so every

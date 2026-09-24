@@ -1,6 +1,5 @@
 :root {
   font-family: system-ui, sans-serif;
-  font-size: 14px;
   color: #222;
   background: #f6f7f9;
 }
@@ -11,58 +10,11 @@
 
 body {
   margin: 0;
-}
-
-.app {
-  display: flex;
-  gap: 16px;
   padding: 24px;
-  height: 100vh;
 }
 
-/* ---- stage ---- */
-
-.stage-column {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* ---- inspect mode ---- */
-
-.inspect-layer {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 640px;
-  height: 480px;
-  cursor: crosshair;
-  z-index: 10;
-}
-
-.inspect-box {
-  position: absolute;
-  border: 1.5px solid #3b6fe0;
-  background: rgba(74, 140, 247, 0.12);
-  border-radius: 2px;
-  pointer-events: none;
-}
-
-.inspect-label {
-  position: absolute;
-  left: -1.5px;
-  bottom: 100%;
-  padding: 1px 6px;
-  background: #3b6fe0;
-  color: white;
-  font-family: ui-monospace, monospace;
-  font-size: 11px;
-  border-radius: 2px 2px 0 0;
-  white-space: nowrap;
-}
-
-.stage {
+/* The element of a canvas document. */
+.canvas {
   position: relative;
   width: 640px;
   height: 480px;
@@ -74,271 +26,18 @@ body {
   user-select: none;
 }
 
-.shape,
-.highlight {
+/* The canvas places a shape at its x, y. */
+.shape {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
   pointer-events: none;
 }
 
-.shape-svg,
-.highlight-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+/* A line draws from its origin; the svg is a point that lets its content overflow. */
+.line-svg {
+  display: block;
+  width: 1px;
+  height: 1px;
   overflow: visible;
-}
-
-.highlight-svg rect {
-  fill: none;
-  stroke: #4a8cf7;
-  stroke-width: 1;
-  stroke-dasharray: 4 3;
-}
-
-.highlight-svg rect.handle {
-  fill: white;
-  stroke-dasharray: none;
-}
-
-.toolbar {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.tool {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  background: white;
-  border: 2px solid #222;
-  border-radius: 6px;
-  color: #222;
-  cursor: pointer;
-}
-
-.tool.active {
-  background: #222;
-  color: white;
-}
-
-.reset {
-  align-self: flex-start;
-  font: inherit;
-  padding: 4px 10px;
-  background: white;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-/* ---- inspector ---- */
-
-.inspector {
-  flex: 1;
-  display: flex;
-  min-width: 0;
-  background: white;
-  border: 1px solid #c8ccd2;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.side {
-  width: 320px;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid #c8ccd2;
-  overflow: auto;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-bottom: 1px solid #e3e6ea;
-}
-
-.inspect {
-  width: 30px;
-  height: 30px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  background: white;
-  border: 1px solid #c8ccd2;
-  border-radius: 4px;
-  color: #666;
-  cursor: pointer;
-}
-
-.inspect.active {
-  color: white;
-  background: #3b6fe0;
-  border-color: #3b6fe0;
-}
-
-.breadcrumb {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  overflow: hidden;
-}
-
-.breadcrumb button {
-  font: inherit;
-  padding: 2px 6px;
-  background: none;
-  border: none;
-  border-radius: 3px;
-  color: #666;
-  cursor: pointer;
-}
-
-.breadcrumb button:hover {
-  background: #f0f5ff;
-}
-
-.breadcrumb button.current {
-  color: #222;
-  font-weight: 600;
-}
-
-.breadcrumb .sep {
-  color: #aaa;
-}
-
-.side h3 {
-  margin: 0;
-  padding: 10px 14px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #888;
-}
-
-.state {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-}
-
-.state td {
-  padding: 5px 14px;
-  border-bottom: 1px solid #eef0f3;
-  vertical-align: top;
-}
-
-.state .key {
-  width: 40%;
-  color: #222;
-}
-
-.state .origin {
-  font-family: system-ui, sans-serif;
-  font-size: 11px;
-  color: #999;
-}
-
-.state .value {
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: #3b6fe0;
-}
-
-.state .expandable {
-  cursor: pointer;
-}
-
-.state .expandable:not(.open):hover {
-  text-decoration: underline dotted;
-}
-
-.state tr.inherited .key {
-  color: #777;
-}
-
-.state tr.hidden .value {
-  color: #aaa;
-}
-
-.behaviors {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.behaviors li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid #e3e6ea;
-  cursor: pointer;
-}
-
-.behaviors li.current {
-  color: #3b6fe0;
-  background: #f0f5ff;
-}
-
-.behaviors li.off .title {
-  color: #999;
-}
-
-.behaviors input {
-  margin: 0;
-}
-
-.detail {
-  flex: 1;
-  min-width: 0;
-  padding: 16px 20px;
-  overflow: auto;
-}
-
-.detail h2 {
-  margin: 0 0 8px;
-  font-size: 16px;
-}
-
-.description {
-  white-space: normal;
-  color: #444;
-  margin: 0 0 16px;
-}
-
-.hint {
-  color: #888;
-}
-
-.file {
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  color: #888;
-  margin-bottom: 4px;
-}
-
-.source {
-  margin: 0;
-  padding: 12px;
-  background: #f6f7f9;
-  border: 1px solid #e3e6ea;
-  border-radius: 4px;
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  overflow: auto;
 }

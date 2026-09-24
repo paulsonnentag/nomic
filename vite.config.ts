@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from "node:url"
 import { defineConfig } from "vite"
 import solid from "vite-plugin-solid"
 
@@ -5,4 +6,9 @@ import solid from "vite-plugin-solid"
 export default defineConfig({
   base: process.env.BASE_PATH ?? "/",
   plugins: [solid()],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
 })
