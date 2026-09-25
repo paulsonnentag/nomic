@@ -1,8 +1,0 @@
-{
-  "name": "draw-shapes",
-  "private": true,
-  "source": "./src/index.jsx",
-  "exports": {
-    ".": "./dist/index.js"
-  }
-}

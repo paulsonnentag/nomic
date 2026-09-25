@@ -1,3 +1,8 @@
+# Builds site/ and publishes it to GitHub Pages.
+#
+# Note: the patchwork service worker must be served from the site root, so a
+# GitHub Pages sub-path deployment (https://<user>.github.io/<repo>/) will not
+# boot. A live site needs a custom domain that serves site/dist at the root.
 name: Deploy to GitHub Pages
 
 on:
@@ -23,14 +28,12 @@ jobs:
         with:
           node-version: 22
           cache: yarn
-      - run: yarn install --frozen-lockfile
+      - run: yarn install --frozen-lockfile --ignore-engines
       - run: yarn build
-        env:
-          BASE_PATH: /${{ github.event.repository.name }}/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: site/dist
 
   deploy:
     needs: build

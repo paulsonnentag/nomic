@@ -1,0 +1,5 @@
+{
+  "provides": {
+    "draw-line": { "module": "./src/draw-line.js", "supportedDataType": "line" }
+  }
+}

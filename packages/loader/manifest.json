@@ -1,0 +1,5 @@
+{
+  "provides": {
+    "loader": { "module": "./src/index.js" }
+  }
+}
