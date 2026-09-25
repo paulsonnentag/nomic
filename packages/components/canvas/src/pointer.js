@@ -1,16 +1,17 @@
-/** Puts `surface` and keeps its pointers in step with DOM events on `dom`. */
+/** Keeps the pointers of `surface` in step with DOM events on `dom`. Does nothing until the surface is there. */
 export default function pointer(env) {
   const dom = env.get("dom").value
-  const surface = env.put("surface", { pointers: {} })
+  const surface = env.get("surface")
   const down = new Set()
-  Object.assign(dom.style, { touchAction: "none", userSelect: "none" })
 
   const write = (e) => {
+    if (!surface.value) return
     surface.change((s) => {
       s.pointers[e.pointerId] = local(dom, e)
     })
   }
   const remove = (e) => {
+    if (!surface.value) return
     surface.change((s) => {
       delete s.pointers[e.pointerId]
     })

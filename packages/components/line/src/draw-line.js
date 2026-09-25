@@ -1,9 +1,9 @@
 import { render } from "solid-js/web"
 import html from "solid-js/html"
-import { useHandle } from "/frameworks/solid"
 
 /** Draws `data.points` as a polyline into `dom`, from the origin; the canvas places it. */
 export default function drawLine(env) {
+  const { useHandle } = env.get("imports/solid").value
   const dom = env.get("dom").value
   const data = env.get("data")
 

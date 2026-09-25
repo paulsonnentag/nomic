@@ -52,8 +52,9 @@ export async function sync(dir: string, report = log, warn = console.warn) {
 }
 
 /**
- * Fills every `/…` entry of every package's importmap.json under `dir` from the
- * sidecar, keeping the module path an entry already names. Returns what changed.
+ * Fills the imports of every package's importmap.json under `dir` that still
+ * name a checkout path (`"core": "/core"`, `"handle": "/core/src/handle.js"`)
+ * with the synced package's url from the sidecar. Returns what changed.
  */
 export function install(dir: string): string[] {
   const base = resolve(dir)
@@ -68,15 +69,15 @@ export function install(dir: string): string[] {
     if (!existsSync(path)) continue
     const map = readJson<ImportMap>(path)
     const imports = { ...(map.imports ?? {}) }
-    for (const [key, value] of Object.entries(imports)) {
-      if (!key.startsWith("/")) continue
-      const url = sidecar[key.slice(1)]
-      if (!url)
-        throw new Error(`${pkg || "."}/importmap.json: "${key}" is not a synced package: run \`nomic sync\` first`)
-      const next = `${url}/${modulePathOf(value)}`
-      if (next === value) continue
-      imports[key] = next
-      changes.push(`${pkg || "."}: ${key} → ${next}`)
+    for (const [name, value] of Object.entries(imports)) {
+      if (!value.startsWith("/")) continue // already a url
+      const located = locate(sidecar, value.slice(1))
+      if (!located)
+        throw new Error(
+          `${pkg || "."}/importmap.json: "${name}": ${value} is not a synced package: run \`nomic sync\` first`,
+        )
+      imports[name] = `${located.url}/${located.path || DEFAULT_MODULE}`
+      changes.push(`${pkg || "."}: ${name} → ${imports[name]}`)
     }
     writeJson(path, { ...map, imports: sortKeys(imports) })
   }
@@ -92,8 +93,8 @@ export async function add(dir: string, specs: string[], warn = console.warn) {
   }
   const path = join(pkg, "importmap.json")
   const map: ImportMap = existsSync(path) ? readJson(path) : { imports: {} }
-  const local = Object.fromEntries(Object.entries(map.imports ?? {}).filter(([key]) => key.startsWith("/")))
-  const external = Object.fromEntries(Object.entries(map.imports ?? {}).filter(([key]) => !key.startsWith("/")))
+  const local = Object.fromEntries(Object.entries(map.imports ?? {}).filter(([, value]) => isLocal(value)))
+  const external = Object.fromEntries(Object.entries(map.imports ?? {}).filter(([, value]) => !isLocal(value)))
   const { Generator } = await import("@jspm/generator")
   const generator = new Generator({
     mapUrl: pathToFileURL(path),
@@ -127,10 +128,18 @@ function writeSidecar(root: string, warn: (message: string) => void) {
   writeJson(sidecarPath(root), sortKeys(Object.fromEntries(recorded)))
 }
 
-/** The module path an importmap value already names (`automerge:X/src/a.js` → `src/a.js`), else the default. */
-function modulePathOf(value: string): string {
-  const match = /^automerge:[^/#]+(?:#[^/]*)?\/(.+)$/.exec(value)
-  return match ? match[1] : DEFAULT_MODULE
+/** The package in the sidecar that `checkoutPath` is in, and the path of the file inside it. */
+function locate(sidecar: Sidecar, checkoutPath: string): { url: string; path: string } | undefined {
+  const packages = Object.keys(sidecar)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+  const found = packages.find((pkg) => checkoutPath === pkg || checkoutPath.startsWith(`${pkg}/`))
+  return found === undefined ? undefined : { url: sidecar[found], path: checkoutPath.slice(found.length + 1) }
+}
+
+/** Whether an importmap value names a synced package (or one still to be installed) rather than an external url. */
+function isLocal(value: string): boolean {
+  return value.startsWith("/") || value.startsWith("automerge:")
 }
 
 function log(message: string) {

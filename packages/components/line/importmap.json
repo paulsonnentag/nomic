@@ -1,6 +1,5 @@
 {
   "imports": {
-    "/core": "",
-    "/frameworks/solid": ""
+    "solid": "/frameworks/solid"
   }
 }

@@ -1,7 +1,6 @@
-import { entriesAt, mount } from "/core"
-
 /** Mounts every package under `components/`, in folder order, then the packages the document names. */
 export default function loader(env) {
+  const { entriesAt, mount } = env.get("imports/core").value
   const detach = []
   let cancelled = false
   run().catch(console.error)

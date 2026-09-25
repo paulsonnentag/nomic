@@ -1,14 +1,13 @@
 /**
  * A press on the canvas starts a line at the pointer; every move while the
  * button is held appends a point. Each pointer draws its own line, so
- * `drawing` maps pointer ids to the line they are extending.
+ * `drawing` maps pointer ids to the line they are extending. Waits for `surface`.
  */
 export default function lineTool(env) {
   const data = env.get("data")
-  const surface = env.get("surface")
   const drawing = env.put("drawing", {})
 
-  return surface.subscribe((s) => {
+  return env.get("surface").subscribe((s) => {
     for (const [pointerId, p] of Object.entries(s.pointers)) {
       const id = drawing.value[pointerId]
       if (p.buttons && !id) {

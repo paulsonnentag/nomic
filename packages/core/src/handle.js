@@ -40,20 +40,18 @@ export function fromDoc(handle) {
   }
 }
 
-/** A handle into a path of another handle. Changes write through to the root. */
+/** A handle into a path of another handle. Changes write through to the root; the value is undefined while the path is missing. */
 export function field(root, ...path) {
-  const name = path.join(".")
+  const name = path.join("/")
   const last = path[path.length - 1]
   return {
     get value() {
-      const value = walk(root.value, path)
-      if (value === MISSING) throw new Error(`nothing at "${name}"`)
-      return value
+      return walk(root.value, path)
     },
     change(fn) {
       root.change((r) => {
         const parent = walk(r, path.slice(0, -1))
-        if (parent === MISSING || parent === null || typeof parent !== "object") throw new Error(`nothing at "${name}"`)
+        if (parent === null || typeof parent !== "object") throw new Error(`nothing at "${name}"`)
         const next = fn(parent[last])
         if (next !== undefined) parent[last] = next
       })
@@ -61,7 +59,7 @@ export function field(root, ...path) {
     subscribe(fn) {
       return root.subscribe((r) => {
         const value = walk(r, path)
-        if (value !== MISSING) fn(value)
+        if (value !== undefined) fn(value)
       })
     },
   }
@@ -77,12 +75,11 @@ export function isHandle(value) {
   )
 }
 
-const MISSING = Symbol("missing")
-
-function walk(root, path) {
+/** The value at `path` inside `root`; undefined if any step is missing. */
+export function walk(root, path) {
   let current = root
   for (const key of path) {
-    if (current === null || typeof current !== "object" || !(key in current)) return MISSING
+    if (current === null || typeof current !== "object" || !(key in current)) return undefined
     current = current[key]
   }
   return current

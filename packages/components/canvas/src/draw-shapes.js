@@ -1,25 +1,16 @@
 import { For } from "solid-js"
 import { render } from "solid-js/web"
 import html from "solid-js/html"
-import { field } from "/core"
-import { View, useHandle } from "/frameworks/solid"
 
 /**
  * Shows every entry of `data.shapes` in `dom`. The canvas places each shape
  * at its `x, y`; the shape's own behaviors draw it from there.
  */
 export default function drawShapes(env) {
+  const { field } = env.get("imports/core").value
+  const { View, useHandle } = env.get("imports/solid").value
   const dom = env.get("dom").value
   const data = env.get("data")
-  Object.assign(dom.style, {
-    position: "relative",
-    width: "640px",
-    height: "480px",
-    background: "white",
-    border: "2px solid #4a8cf7",
-    borderRadius: "4px",
-    overflow: "hidden",
-  })
 
   return render(() => {
     const canvas = useHandle(data)

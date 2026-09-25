@@ -46,7 +46,7 @@ async function main() {
   program
     .command("install")
     .argument("[dir]", "the directory whose packages to fill", ".")
-    .description("fills the `/…` entries of every importmap.json from the synced package urls")
+    .description("fills the checkout paths (`/core`) in every importmap.json with the synced package urls")
     .action((dir: string) => {
       const changes = install(dir)
       for (const change of changes) console.log(change)

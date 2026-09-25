@@ -1,6 +1,5 @@
 export { createEnvironment } from "./environment.js"
-export { createHandle, field, fromDoc, isHandle } from "./handle.js"
+export { createHandle, field, fromDoc, isHandle, walk } from "./handle.js"
 export { basePath, contentOf, headless, isDocUrl, pinOf, splitTarget } from "./urls.js"
 export { docAt, entriesAt, folderAt } from "./folder.js"
-export { collectScopes, createLoader, injectImportMap, makeImportable } from "./load.js"
-export { mount } from "./mount.js"
+export { mount, resolve } from "./mount.js"

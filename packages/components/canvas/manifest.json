@@ -1,5 +1,6 @@
 {
   "provides": {
+    "canvas": { "module": "./src/canvas.js", "supportedDataType": "canvas" },
     "pointer": { "module": "./src/pointer.js", "supportedDataType": "canvas" },
     "line-tool": { "module": "./src/line-tool.js", "supportedDataType": "canvas" },
     "draw-shapes": { "module": "./src/draw-shapes.js", "supportedDataType": "canvas" }

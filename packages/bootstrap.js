@@ -1,5 +1,7 @@
-// Served from the root folder doc. Runs before any import map exists, so it walks the
-// root doc with the repo directly, pins `core`, imports it by served url, and hands off.
+// Served from the root folder doc. Runs before anything else is resolved, so it
+// walks the root doc with the repo directly, pins `core`, imports it by served
+// url, and hands off. Core is the only package imported statically; everything
+// else is resolved through the environment.
 
 const ROOT = decodeURIComponent(new URL(import.meta.url).pathname.split("/")[1]).split("#")[0]
 
@@ -16,11 +18,10 @@ async function run(element, repo) {
   const env = core.createEnvironment()
   env.put("repo", repo)
   env.put("packages", ROOT)
-  env.put("load", core.createLoader(repo))
 
   const solidUrl = await core.docAt(repo, ROOT, "frameworks/solid")
   if (!solidUrl) throw new Error("no frameworks/solid package")
-  const solid = await (await env.get("load").value(solidUrl)).import("src/index.js")
+  const solid = await core.resolve(env, `${solidUrl}/src/index.js`)
   const canvas = await canvasDoc(repo)
   solid.mountRoot(env, core.fromDoc(canvas), element)
 }
