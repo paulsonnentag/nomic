@@ -1,0 +1,8 @@
+{
+  "name": "line-tool",
+  "private": true,
+  "source": "./src/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  }
+}

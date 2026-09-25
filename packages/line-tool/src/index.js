@@ -1,21 +1,18 @@
-import type { Environment, Id } from "@/core/types"
-import type { Canvas, Line, Surface } from "@/behaviors/types"
-
 /**
  * A press on the canvas starts a line at the pointer; every move while the
  * button is held appends a point. Each pointer draws its own line, so
  * `drawing` maps pointer ids to the line they are extending.
  */
-export default function lineTool(env: Environment) {
-  const data = env.get<Canvas>("data")
-  const surface = env.get<Surface>("surface")
-  const drawing = env.put<{ [pointerId: string]: Id }>("drawing", {})
+export default function lineTool(env) {
+  const data = env.get("data")
+  const surface = env.get("surface")
+  const drawing = env.put("drawing", {})
 
   return surface.subscribe((s) => {
     for (const [pointerId, p] of Object.entries(s.pointers)) {
       const id = drawing.value[pointerId]
       if (p.buttons && !id) {
-        const id = newId()
+        const id = crypto.randomUUID()
         data.change((c) => {
           c.shapes[id] = start(p.x, p.y)
         })
@@ -36,10 +33,7 @@ export default function lineTool(env: Environment) {
   })
 }
 
-function start(x: number, y: number): Line {
+/** A new line document at `x, y`, with its first point at its own origin. */
+function start(x, y) {
   return { "@patchwork": { type: "line" }, x, y, points: [{ x: 0, y: 0 }], color: "#0a7" }
-}
-
-function newId(): Id {
-  return Math.random().toString(36).slice(2, 8)
 }

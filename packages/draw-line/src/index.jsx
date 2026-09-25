@@ -1,12 +1,10 @@
 import { render } from "solid-js/web"
-import type { Environment } from "@/core/types"
 import { useHandle } from "@/frameworks/solid/useHandle"
-import type { Line } from "@/behaviors/types"
 
 /** Draws `data.points` as a polyline into `dom`, from the origin; the canvas places it. */
-export default function renderLine(env: Environment) {
-  const dom = env.get<HTMLElement>("dom").value
-  const data = env.get<Line>("data")
+export default function drawLine(env) {
+  const dom = env.get("dom").value
+  const data = env.get("data")
 
   return render(() => {
     const line = useHandle(data)

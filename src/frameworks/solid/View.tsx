@@ -1,24 +1,21 @@
 import { onCleanup } from "solid-js"
-import type { Behavior, Doc, Environment, Handle } from "@/core/types"
-
-/** Which behaviors a document of each type gets. Put at `components` on the root. */
-export type Components = { [type: string]: Behavior[] }
+import type { Doc, Environment, Handle } from "@/core/types"
+import { attachPackage } from "@/core/packages"
 
 /**
  * Shows a document: forks the environment, puts the document's handle at
- * `data` and a fresh element at `dom`, and attaches the behaviors for the
- * document's type. Destroys the fork when Solid disposes the component.
+ * `data` and a fresh element at `dom`, and attaches the `loader` package,
+ * which decides what else the view gets. Destroys the fork when Solid
+ * disposes the component.
  */
-export function View(props: { env: Environment; data: Handle<Doc> }) {
-  const type = props.data.value["@patchwork"].type
-  const behaviors = props.env.get<Components>("components").value[type] ?? []
+export function View<T extends Doc>(props: { env: Environment; data: Handle<T> }) {
   const dom = document.createElement("div")
-  dom.className = type
+  dom.className = props.data.value["@patchwork"].type
 
   const env = props.env.fork()
   env.put("data", props.data)
   env.put("dom", dom)
-  for (const behavior of behaviors) env.attach(behavior)
+  attachPackage(env, "loader").catch(console.error)
 
   onCleanup(() => env.destroy())
   return dom

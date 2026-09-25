@@ -58,6 +58,7 @@ class Env implements Environment {
   // -- behaviors --
 
   attach(behavior: Behavior): () => void {
+    if (this.destroyed) return () => {} // behaviors may arrive after the view that wanted them is gone
     const by = `${behavior.name || "behavior"}#${count++}`
     let teardown: Teardown | void
     let detached = false

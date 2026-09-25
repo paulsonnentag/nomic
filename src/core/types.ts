@@ -1,4 +1,4 @@
-// The core types: environments, handles, behaviors, documents.
+// The core types: environments, handles, behaviors, documents, packages.
 
 export type Key = string
 export type Id = string
@@ -31,5 +31,38 @@ export type Handle<T> = {
 export type Behavior = (env: Environment) => Teardown | void
 export type Teardown = () => void
 
-/** A document names its type, which decides the behaviors it gets. */
-export type Doc = { "@patchwork": { type: string }; [key: Key]: Json }
+/** A document names its type, and may name behaviors of its own; both decide what a view of it gets. */
+export type Doc = { "@patchwork": Meta; [key: Key]: Json }
+export type Meta = { type: string; behaviors?: Url[] }
+
+// -- documents in a repo --
+
+export type Url = `automerge:${string}`
+
+/** A handle to a document in the repo: a handle that knows its address. */
+export type DocHandle<T> = Handle<T> & { readonly url: Url }
+
+/** Just enough repo to hold and look up documents; an Automerge repo has the same shape. */
+export type Repo = {
+  create<T>(doc: T): DocHandle<T>
+  find<T>(url: Url): Promise<DocHandle<T>>
+}
+
+/** Turns a package document into the behavior it exports. */
+export type Load = (url: Url) => Promise<Behavior>
+
+// -- packages --
+
+/** A folder of documents, in pushwork's folder shape. `docs` is ordered. */
+export type Folder = { "@patchwork": { type: "folder" }; title: string; docs: Entry[] }
+export type Entry = { name: string; type: string; url: Url }
+
+/** A package: a directory of files in pushwork's vfs shape, paths mapping to file documents. */
+export type Directory = { "@patchwork": { type: "directory"; title?: string }; [path: string]: Json }
+export type File = {
+  "@patchwork": { type: "file" }
+  name: string
+  extension: string
+  mimeType: string
+  content: string
+}

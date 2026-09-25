@@ -1,0 +1,8 @@
+{
+  "name": "loader",
+  "private": true,
+  "source": "./src/index.js",
+  "exports": {
+    ".": "./dist/index.js"
+  }
+}
