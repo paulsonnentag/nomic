@@ -1,8 +1,12 @@
-/** Keeps the pointers of `surface` in step with DOM events on `dom`. Does nothing until the surface is there. */
+/**
+ * Keeps the pointers of `surface` in step with DOM events on the view's own
+ * `dom`. Follows it: when another element becomes the view's, the listeners
+ * move to it. Does nothing until the surface is there.
+ */
 export default function pointer(env) {
-  const dom = env.get("dom").value
   const surface = env.get("surface")
   const down = new Set()
+  let dom
 
   const write = (e) => {
     if (!surface.value) return
@@ -22,7 +26,7 @@ export default function pointer(env) {
     write(e)
   }
   const onMove = (e) => {
-    if (down.has(e.pointerId) || dom.contains(e.target)) write(e)
+    if (dom && (down.has(e.pointerId) || dom.contains(e.target))) write(e)
   }
   const onUp = (e) => {
     if (!down.has(e.pointerId)) return
@@ -33,14 +37,23 @@ export default function pointer(env) {
     if (!down.has(e.pointerId)) remove(e)
   }
 
-  dom.addEventListener("pointerdown", onDown)
-  dom.addEventListener("pointerleave", onLeave)
+  const detachDom = () => {
+    dom?.removeEventListener("pointerdown", onDown)
+    dom?.removeEventListener("pointerleave", onLeave)
+  }
+  const stop = env.own("dom").subscribe((next) => {
+    if (!(next instanceof Element) || next === dom) return
+    detachDom()
+    dom = next
+    dom.addEventListener("pointerdown", onDown)
+    dom.addEventListener("pointerleave", onLeave)
+  })
   window.addEventListener("pointermove", onMove)
   window.addEventListener("pointerup", onUp)
   window.addEventListener("pointercancel", onUp)
   return () => {
-    dom.removeEventListener("pointerdown", onDown)
-    dom.removeEventListener("pointerleave", onLeave)
+    stop()
+    detachDom()
     window.removeEventListener("pointermove", onMove)
     window.removeEventListener("pointerup", onUp)
     window.removeEventListener("pointercancel", onUp)

@@ -7,19 +7,26 @@ export default function solid(env) {
 
   /**
    * Shows a document: forks the environment, puts the document's handle at
-   * `data` and a fresh element at `dom`, and mounts the `loader` package, which
-   * decides what else the view gets. Destroys the fork when Solid disposes the
-   * component.
+   * `data`, and mounts the `loader` package, which decides what else the view
+   * gets. The view's element is whatever a behavior puts at `dom` in the view
+   * itself (not an enclosing view's); it is shown inside a stable wrapper and
+   * swapped when the visible `dom` changes (another behavior's element chosen,
+   * or the behavior gone). Destroys the fork when Solid disposes the component.
    */
   function View(props) {
-    const dom = document.createElement("div")
-    dom.className = props.data.value["@patchwork"].type
+    const wrapper = document.createElement("div")
+    wrapper.className = `view ${props.data.value["@patchwork"].type}`
     const view = props.env.fork()
     view.put("data", props.data)
-    view.put("dom", dom)
+    const stop = view.own("dom").subscribe((dom) => {
+      if (dom instanceof Node) wrapper.replaceChildren(dom)
+    })
     mountLoader(view).catch(console.error)
-    onCleanup(() => view.destroy())
-    return dom
+    onCleanup(() => {
+      stop()
+      view.destroy()
+    })
+    return wrapper
   }
 
   /** Renders a view of `data` into `element`; returns the dispose function. */

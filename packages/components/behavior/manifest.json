@@ -1,0 +1,5 @@
+{
+  "provides": {
+    "show-behavior": { "module": "./src/show-behavior.js", "supportedDataType": "behavior" }
+  }
+}

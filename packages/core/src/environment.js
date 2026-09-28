@@ -10,18 +10,21 @@ export function createEnvironment() {
  * `imports/core`, whose lookup reaches into the bound value. Forks see their
  * parent's bindings and can shadow them. Behaviors attach to an environment and
  * put bindings into it; every put made by a behavior is attributed to it and
- * dropped when it detaches. There are no defaults: `get` never creates a
- * binding, its handle is empty until someone puts one.
+ * dropped when it detaches. When several behaviors put the same key here, all
+ * their values are kept as candidates and one is visible: the chosen one, else
+ * the last put. There are no defaults: `get` never creates a binding, its
+ * handle is empty until someone puts one.
  */
 class Env {
   constructor(parent) {
     this.kind = "env"
     this.parent = parent
-    this.slots = new Map() // key -> { handle, by, stop }
+    this.slots = new Map() // key -> { candidates: Map<by, { handle, stop }>, chosen: by | undefined }
     this.listeners = new Map() // key -> Set<fn>
+    this.ownListeners = new Map() // key -> Set<fn>, for `own`: bindings made here only
     this.watchers = new Set()
     this.forks = new Set()
-    this.attached = [] // [{ behavior, meta, by, view, detach }]
+    this.attached = [] // [{ behavior, meta, by, view, detach, info }]
     this.destroyed = false
   }
 
@@ -32,22 +35,29 @@ class Env {
   // -- inspecting --
 
   /**
-   * What is here, for tooling: the bindings made in this environment and the
-   * attachment that made them (`by`: the behavior's file at its pin, or its
-   * function name), the behaviors attached (with what `mount` recorded about
-   * them: package, pin, manifest name and module path, and the layer they see
-   * the environment through), and the forks and layers below.
+   * What is here, for tooling: the bindings made in this environment — the
+   * visible value and the attachment that put it (`by`: the behavior's file at
+   * its pin, or its function name), every candidate put at the key, and the
+   * chosen one, if any — the behaviors attached (each a behavior document,
+   * see `attachThrough`, with the layer it sees the environment through), and
+   * the forks and layers below.
    */
   inspect() {
     return {
       kind: this.kind,
-      bindings: [...this.slots].map(([key, slot]) => ({ key, handle: slot.handle, by: slot.by })),
-      behaviors: this.attached.map(({ behavior, meta, by, view }) => ({
-        by,
-        name: meta?.name ?? behavior.name,
-        package: meta?.package,
-        pin: meta?.pin,
-        module: meta?.module,
+      bindings: [...this.slots].map(([key, slot]) => {
+        const [by, winner] = this.winner(slot)
+        return {
+          key,
+          handle: winner.handle,
+          by,
+          chosen: slot.chosen,
+          alternatives: [...slot.candidates].map(([by, c]) => ({ by, handle: c.handle })),
+        }
+      }),
+      behaviors: this.attached.map(({ info, view }) => ({
+        ...info.value,
+        handle: info,
         layer: view === this ? undefined : view,
       })),
       forks: [...this.forks],
@@ -67,6 +77,15 @@ class Env {
     return this.live(key)
   }
 
+  /**
+   * A live handle on what is bound at `key` in this environment itself, not
+   * inherited from above: a view's own `dom`, say, which a fork must not take
+   * from its parent while it has none.
+   */
+  own(key) {
+    return this.live(key, true)
+  }
+
   /** The bindings visible from here, nearest first, as live handles. */
   entries() {
     const out = {}
@@ -83,6 +102,16 @@ class Env {
   /** Binds `key` here, shadowing what is above and covering what is below it. */
   put(key, value) {
     return this.set(key, isHandle(value) ? value : createHandle(value), undefined)
+  }
+
+  /** Makes the candidate put at `key` by `by` the visible one; `undefined` goes back to the last put. */
+  choose(key, by) {
+    const slot = this.slots.get(key)
+    if (!slot) throw new Error(`nothing is bound at "${key}" here`)
+    if (by !== undefined && !slot.candidates.has(by)) throw new Error(`"${by}" put nothing at "${key}" here`)
+    slot.chosen = by
+    this.notify(key)
+    this.changed()
   }
 
   // -- behaviors --
@@ -111,9 +140,10 @@ class Env {
     this.destroyed = true
     for (const fork of [...this.forks]) fork.destroy()
     for (const a of [...this.attached].reverse()) a.detach()
-    for (const slot of this.slots.values()) slot.stop()
+    for (const slot of this.slots.values()) for (const c of slot.candidates.values()) c.stop()
     this.slots.clear()
     this.listeners.clear()
+    this.ownListeners.clear()
     this.watchers.clear()
     this.parent?.forks.delete(this)
     this.parent?.changed()
@@ -125,12 +155,25 @@ class Env {
    * Attaches `behavior` here; it sees the environment through `view` (this, or
    * a layer in front of it). The attachment is known by the behavior's file at
    * its pin when it was mounted from a package, else by the function's name;
-   * the same behavior attaches to an environment once.
+   * the same behavior attaches to an environment once. The attachment is
+   * described by a behavior document, a handle on
+   * `{ "@patchwork": { type: "behavior" }, by, name, package, pin, module }`
+   * (what `mount` recorded: the package's headless url, the pin the module was
+   * read at, the manifest name and the module path), so tooling can show it
+   * like any document.
    */
   attachThrough(view, behavior, meta) {
     if (this.destroyed) return () => {} // behaviors may arrive after the view that wanted them is gone
     const by = meta ? `${meta.pin}/${meta.module}` : behavior.name || "behavior"
     if (this.attached.some((a) => a.by === by)) throw new Error(`"${by}" is already attached here`)
+    const info = createHandle({
+      "@patchwork": { type: "behavior" },
+      by,
+      name: meta?.name ?? behavior.name,
+      package: meta?.package,
+      pin: meta?.pin,
+      module: meta?.module,
+    })
     let teardown
     let detached = false
     const detach = () => {
@@ -138,54 +181,69 @@ class Env {
       detached = true
       teardown?.()
       for (const env of new Set([this, view])) {
-        for (const [key, slot] of [...env.slots]) if (slot.by === by) env.drop(key)
+        for (const [key, slot] of [...env.slots]) if (slot.candidates.has(by)) env.drop(key, by)
       }
       this.attached = this.attached.filter((a) => a !== entry)
       this.changed()
     }
-    const entry = { behavior, meta, by, view, detach }
+    const entry = { behavior, meta, by, view, detach, info }
     this.attached.push(entry)
     teardown = behavior(attributed(view, by, detach))
     this.changed()
     return detach
   }
 
-  /** Sets the slot at `key` on this environment, attributed to `by`. */
+  /**
+   * Puts `handle` at `key` on this environment as the candidate of `by`,
+   * replacing what `by` put there before. It is the visible value unless
+   * another candidate is chosen.
+   */
   set(key, handle, by) {
     for (const bound of [...this.slots.keys()]) {
-      if (bound !== key && covers(key, bound)) {
-        this.slots.get(bound).stop() // unreachable from now on: covered by `key`
-        this.slots.delete(bound)
-      }
+      if (bound !== key && covers(key, bound)) this.drop(bound) // unreachable from now on: covered by `key`
     }
-    this.slots.get(key)?.stop()
-    const slot = { handle, by, stop: () => {} }
-    this.slots.set(key, slot)
-    // Subscribing forwards every change of the value into the environment,
-    // and the first call is the notification for this set.
-    slot.stop = handle.subscribe(() => this.notify(key))
+    let slot = this.slots.get(key)
+    if (!slot) this.slots.set(key, (slot = { candidates: new Map(), chosen: undefined }))
+    slot.candidates.get(by)?.stop()
+    slot.candidates.delete(by) // re-inserted last: the latest put wins by default
+    const candidate = { handle, stop: () => {} }
+    slot.candidates.set(by, candidate)
+    // Subscribing forwards every change of the value into the environment while
+    // it is the visible one, and the first call is the notification for this set.
+    candidate.stop = handle.subscribe(() => {
+      if (this.winner(slot)[1] === candidate) this.notify(key)
+    })
     this.changed()
     return this.live(key)
   }
 
-  /** A live handle: it always reports what is visible at `key` from here. */
-  live(key) {
+  /** The visible candidate of a slot: [by, { handle, stop }] — the chosen one, else the last put. */
+  winner(slot) {
+    if (slot.chosen !== undefined && slot.candidates.has(slot.chosen))
+      return [slot.chosen, slot.candidates.get(slot.chosen)]
+    const all = [...slot.candidates]
+    return all[all.length - 1]
+  }
+
+  /** A live handle: it always reports what is visible at `key` from here (`own`: bound here only). */
+  live(key, own = false) {
     const env = this
     return {
       get value() {
-        return env.lookup(key)
+        return env.lookup(key, own)
       },
       change(fn) {
-        const found = env.resolve(key)
+        const found = env.resolve(key, own)
         if (!found) throw new Error(`nothing is visible at "${key}"`)
-        if (found.rest.length === 0) found.slot.handle.change(fn)
-        else field(found.slot.handle, ...found.rest).change(fn)
+        if (found.rest.length === 0) found.handle.change(fn)
+        else field(found.handle, ...found.rest).change(fn)
       },
       subscribe(fn) {
-        let fns = env.listeners.get(key)
-        if (!fns) env.listeners.set(key, (fns = new Set()))
+        const listeners = own ? env.ownListeners : env.listeners
+        let fns = listeners.get(key)
+        if (!fns) listeners.set(key, (fns = new Set()))
         fns.add(fn)
-        const value = env.lookup(key)
+        const value = env.lookup(key, own)
         if (value !== undefined) fn(value)
         return () => fns.delete(fn)
       },
@@ -193,18 +251,22 @@ class Env {
   }
 
   /** The value visible at `key` from here; undefined if nothing is. */
-  lookup(key) {
-    const found = this.resolve(key)
+  lookup(key, own = false) {
+    const found = this.resolve(key, own)
     if (!found) return undefined
-    return found.rest.length ? walk(found.slot.handle.value, found.rest) : found.slot.handle.value
+    return found.rest.length ? walk(found.handle.value, found.rest) : found.handle.value
   }
 
-  /** The binding visible at `key`: in the nearest environment binding `key` or a prefix of it, the longest such key. */
-  resolve(key) {
-    for (let env = this; env; env = env.parent) {
+  /**
+   * The visible handle at `key`: in the nearest environment binding `key` or a
+   * prefix of it (`own`: this one only), the longest such key's winner.
+   */
+  resolve(key, own = false) {
+    for (let env = this; env; env = own ? undefined : env.parent) {
       const bound = env.match(key)
       if (bound !== undefined) {
-        return { env, slot: env.slots.get(bound), rest: key.slice(bound.length).split("/").filter(Boolean) }
+        const [, winner] = env.winner(env.slots.get(bound))
+        return { env, handle: winner.handle, rest: key.slice(bound.length).split("/").filter(Boolean) }
       }
     }
     return undefined
@@ -219,11 +281,20 @@ class Env {
     return best
   }
 
-  drop(key) {
+  /** Removes what `by` put at `key`, or with no `by` every candidate; the next candidate becomes visible. */
+  drop(key, ...rest) {
     const slot = this.slots.get(key)
     if (!slot) return
-    slot.stop()
-    this.slots.delete(key)
+    if (rest.length === 0) {
+      for (const c of slot.candidates.values()) c.stop()
+      slot.candidates.clear()
+    } else {
+      const [by] = rest
+      slot.candidates.get(by)?.stop()
+      slot.candidates.delete(by)
+      if (slot.chosen === by) slot.chosen = undefined
+    }
+    if (slot.candidates.size === 0) this.slots.delete(key)
     this.notify(key)
     this.changed()
   }
@@ -238,13 +309,23 @@ class Env {
     this.parent?.changed()
   }
 
-  /** Tells the listeners at `key` and below it, here and in every fork that does not shadow them on the way to `origin`. */
+  /**
+   * Tells the listeners at `key` and below it, here and in every fork that does
+   * not shadow them on the way to `origin`; `own` listeners only at the origin.
+   */
   fire(key, origin) {
     for (const [listened, fns] of this.listeners) {
       if (!covers(key, listened)) continue
       if (this !== origin && this.shadows(listened, origin)) continue
       const value = this.lookup(listened)
       if (value !== undefined) for (const fn of [...fns]) fn(value)
+    }
+    if (this === origin) {
+      for (const [listened, fns] of this.ownListeners) {
+        if (!covers(key, listened)) continue
+        const value = this.lookup(listened, true)
+        if (value !== undefined) for (const fn of [...fns]) fn(value)
+      }
     }
     for (const fork of this.forks) fork.fire(key, origin)
   }
@@ -285,6 +366,10 @@ class Layer extends Env {
     return this.covered(key) ? super.set(key, handle, by) : this.base.set(key, handle, by)
   }
 
+  own(key) {
+    return this.covered(key) ? super.own(key) : this.base.own(key)
+  }
+
   attach(behavior, meta) {
     return this.base.attachThrough(this, behavior, meta)
   }
@@ -316,6 +401,7 @@ function attributed(env, by, detach) {
       return env.behaviors
     },
     get: (key) => env.live(key),
+    own: (key) => env.own(key),
     put: (key, value) => env.set(key, isHandle(value) ? value : createHandle(value), by),
     entries: () => env.entries(),
     attach: (behavior, meta) => env.attach(behavior, meta),
@@ -323,6 +409,7 @@ function attributed(env, by, detach) {
     layer: (bindings) => env.layer(bindings),
     inspect: () => env.inspect(),
     watch: (fn) => env.watch(fn),
+    choose: (key, by) => env.choose(key, by),
     destroy: detach,
   }
 }

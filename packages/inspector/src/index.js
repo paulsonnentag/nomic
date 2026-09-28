@@ -1,9 +1,9 @@
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js"
 import { Portal, render } from "solid-js/web"
 import html from "solid-js/html"
 
 /** Shown in every panel header, so it is visible which inspector the page runs. Bump it with changes. */
-const VERSION = "0.0.8"
+const VERSION = "0.0.15"
 
 /** Highlight colors, one per open inspector, in the order they are opened. */
 const COLORS = ["#4a8cf7", "#d6409f", "#2a9d5c", "#e0851a", "#7c5cd6"]
@@ -31,7 +31,7 @@ const COLORS = ["#4a8cf7", "#d6409f", "#2a9d5c", "#e0851a", "#7c5cd6"]
  */
 export default function inspector(env) {
   const core = env.get("imports/core").value
-  const { useHandle } = env.get("imports/solid").value
+  const { useHandle, View } = env.get("imports/solid").value
   const repo = env.get("repo").value
   const root = rootOf(env)
 
@@ -61,7 +61,7 @@ export default function inspector(env) {
     const picked = hovered()
     const by = selecting()?.by
     stop()
-    if (picked) show(picked, by)
+    if (picked) show(picked.env, by)
   }
   const onKey = (e) => {
     if (e.altKey && e.code === "KeyI") toggle(instances[0])
@@ -70,26 +70,29 @@ export default function inspector(env) {
   window.addEventListener("keydown", onKey)
 
   /**
-   * Shows `picked`, selected from the inspector `by` (none when there is no
-   * inspector yet): a picked panel opens a new inspector right of it, unless
-   * one shows it already; anything else replaces what `by` shows.
+   * Shows the view `env`, selected from the inspector `by` (none when there is
+   * no inspector yet). A view that is an inspector's panel or shown inside one
+   * opens a new inspector right of that one, unless an inspector shows it
+   * already — retargeting the host would take away what it hosts. Anything
+   * else replaces what `by` shows.
    */
-  const show = (picked, by) => {
-    const inspected = instances.find((i) => i.view === picked.env)
-    if (inspected) {
-      const already = instances.find((i) => i.targets(picked))
-      if (already) already.retarget(picked)
-      else spawn(picked, instances.indexOf(inspected) + 1)
-    } else if (by) by.retarget(picked)
-    else spawn(picked, 0)
+  const show = (env, by) => {
+    const host = instances.find((i) => chain(env).includes(i.view))
+    if (host) {
+      const already = instances.find((i) => i.targets(env))
+      if (already) already.retarget(env)
+      else spawn(env, instances.indexOf(host) + 1)
+    } else if (by) by.retarget(env)
+    else spawn(env, 0)
   }
-  /** Opens an inspector of `picked` at `index` in the dock, sliding in from the right. */
-  const spawn = (picked, index) => {
-    const instance = openInspector({ ...shared, color: COLORS[opened++ % COLORS.length], target: picked, close })
+  /** Opens an inspector of the view `env` at `index` in the dock, sliding in from the right. */
+  const spawn = (env, index) => {
+    const instance = openInspector({ ...shared, color: COLORS[opened++ % COLORS.length], target: env, close })
     instances.splice(index, 0, instance)
     setCount(instances.length)
     layout(tracked, () => panels.insertBefore(instance.dom, panels.children[index] ?? null), instance.dom)
     function close() {
+      if (!instances.includes(instance)) return
       instances.splice(instances.indexOf(instance), 1)
       setCount(instances.length)
       layout(tracked, () => instance.dispose())
@@ -100,8 +103,8 @@ export default function inspector(env) {
     root,
     names: resolved(packagePaths(repo, env.get("packages").value, core), new Map()),
     useHandle,
+    View,
     createHandle: core.createHandle,
-    source: (behavior) => core.fileText(repo, behavior.pin, behavior.module),
     selecting,
     toggle,
   }
@@ -144,7 +147,9 @@ function Launcher(props) {
           onPointerMove=${(e) => props.setHovered(hit(views(props.root), e.clientX, e.clientY))}
           onClick=${props.pick}
         ></div>
-        <${Show} when=${props.hovered}>${() => Highlight({ view: props.hovered, dashed: true, color: color() })}<//>
+        <${Show} when=${props.hovered}
+          >${() => Highlight({ env: () => props.hovered().env, dashed: true, color: color() })}<//
+        >
       <//>
     <//>
   `
@@ -207,7 +212,7 @@ function openInspector(shared) {
   const view = shared.root.fork()
   const data = shared.createHandle({
     "@patchwork": { type: "inspector" },
-    target: shared.target, // the inspected view: { env, dom }
+    target: shared.target, // the inspected view's environment; its `dom` is read live
     environment: undefined, // the selected environment in the chain; the target's when unset
     behavior: undefined, // the `by` of the selected behavior of that environment
   })
@@ -219,11 +224,11 @@ function openInspector(shared) {
     view,
     dom,
     color: shared.color,
-    targets: (picked) => data.value.target?.env === picked.env,
-    /** Shows `picked` instead; the panel blinks to say so. */
-    retarget(picked) {
+    targets: (env) => data.value.target === env,
+    /** Shows the view `env` instead; the panel blinks to say so. */
+    retarget(env) {
       data.change((s) => {
-        s.target = picked
+        s.target = env
         s.environment = s.behavior = undefined
       })
       dom.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: 300 })
@@ -254,31 +259,34 @@ function Inspector(props) {
   const version = watchTree(props.root) // bumps when the tree of environments changes
   const change = (fn) => props.data.change(fn)
 
-  /** The inspected view, while it is still in the page. */
+  /** The inspected view's environment, while it exists. */
   const target = () => {
     version()
     const t = state().target
-    return t?.dom.isConnected ? t : undefined
+    return t && !t.destroyed ? t : undefined
   }
-  /** The environment whose behaviors are shown: the selected section, or the target's. */
-  const environment = () => state().environment ?? target()?.env
+  /** The environment whose behaviors are shown: the selected section, or the target. */
+  const environment = () => state().environment ?? target()
   const behaviors = () => (environment() ? (version(), environment().inspect().behaviors) : [])
   const behavior = () => behaviors().find((b) => b.by === state().behavior)
-  /** Root first, down to the target's environment; the selected behavior's layer sits under the environment it fronts. */
+  /**
+   * The chain from the root down to the target's environment, split at the
+   * selected one: `above` ends with it (and the selected behavior's layer, which
+   * sits under the environment it fronts), `below` is folded away under the
+   * behaviors.
+   */
   const sections = () => {
-    if (!target()) return []
-    const list = chain(target().env).reverse()
+    if (!target()) return { above: [], below: [] }
+    const list = chain(target()).reverse()
+    const at = list.indexOf(environment())
+    const above = list.slice(0, at < 0 ? list.length : at + 1)
     const layer = behavior()?.layer
-    if (layer) list.splice(list.indexOf(environment()) + 1, 0, layer)
-    return list
+    if (layer) above.push(layer)
+    return { above, below: at < 0 ? [] : list.slice(at + 1) }
   }
   createEffect(() => {
     version()
-    if (state().target && !state().target.dom.isConnected) {
-      change((s) => {
-        s.target = s.environment = s.behavior = undefined // the target left the page
-      })
-    }
+    if (state().target?.destroyed) queueMicrotask(props.close) // the target is gone; closing disposes this render
   })
   const selectEnvironment = (env) =>
     change((s) => {
@@ -289,6 +297,17 @@ function Inspector(props) {
     change((s) => {
       s.behavior = s.behavior === b.by ? undefined : b.by
     })
+  const section = (env, folded = false) =>
+    EnvSection({
+      env,
+      folded,
+      selected: () => env === environment(),
+      select: () => selectEnvironment(env),
+      behavior,
+      version,
+      names: props.names,
+      useHandle: props.useHandle,
+    })
 
   return html`
     <div class="resize" onPointerDown=${(e) => resize(e, props.dom)}></div>
@@ -297,28 +316,22 @@ function Inspector(props) {
       <span class="name">inspector <span class="dim">${VERSION}</span></span>
       <button class="close" title="Close" onClick=${props.close}>×</button>
     </header>
-    <${Show} when=${target} fallback=${html`<div class="empty">the inspected view left the page</div>`}>
+    <${Show} when=${target}>
       <div class="bindings">
-        <${For} each=${sections}
-          >${(env) =>
-            EnvSection({
-              env,
-              selected: () => env === environment(),
-              select: () => selectEnvironment(env),
-              behavior,
-              version,
-              names: props.names,
-              useHandle: props.useHandle,
-            })}<//
-        >
+        <${For} each=${() => sections().above}>${(env) => section(env)}<//>
       </div>
       <div class="behaviors">
         ${() => BehaviorTree({ behaviors, selected: behavior, select: selectBehavior, names: props.names })}
-        ${() => BehaviorDetail({ behavior, names: props.names, source: props.source })}
+        ${() => BehaviorDetail({ behavior, view: props.view, View: props.View })}
       </div>
+      <${Show} when=${() => sections().below.length}>
+        <div class="bindings folded">
+          <${For} each=${() => sections().below}>${(env) => section(env, true)}<//>
+        </div>
+      <//>
     <//>
     <${Portal}>
-      <${Show} when=${target}>${() => Highlight({ view: target, dashed: false, color: props.color })}<//>
+      <${Show} when=${target}>${() => Highlight({ env: target, dashed: false, color: props.color })}<//>
     <//>
   `
 }
@@ -461,77 +474,111 @@ function measured(measure) {
     const next = measure()
     const current = box()
     if (
-      next.left !== current.left ||
-      next.top !== current.top ||
-      next.right !== current.right ||
-      next.bottom !== current.bottom
+      (next === undefined) !== (current === undefined) ||
+      (next &&
+        (next.left !== current.left ||
+          next.top !== current.top ||
+          next.right !== current.right ||
+          next.bottom !== current.bottom))
     )
       setBox(next)
   }
 }
 
-const LABEL = 18 // px the label above a highlight needs; tucked inside when the box is closer to the top
+const LABEL = 18 // px the label under a highlight needs; tucked inside when the box is closer to the bottom
 
-/**
- * Outlines a view in `color`, inside its bounds so the edges show even at the
- * viewport's: dashed as a preview while selecting, solid for the view an
- * inspector shows. The label sits above the box, or inside it near the top of
- * the viewport. Drawn under the dock, so panels cover it — except for a panel
- * itself, which is outlined over the dock.
- */
-function Highlight(props) {
-  const box = measured(() => bounds(props.view().dom))
-  const inDock = () => props.view().dom.closest(".nomic-inspector-dock") !== null
-  return html`<div
-    class=${() =>
-      `nomic-inspector-highlight${props.dashed ? " dashed" : ""}${inDock() ? " above" : ""}${box().top < LABEL ? " tucked" : ""}`}
-    style=${() => {
-      const b = box()
-      return `--color:${props.color};left:${b.left}px;top:${b.top}px;width:${b.right - b.left}px;height:${b.bottom - b.top}px`
-    }}
-  >
-    <span>${() => titleOf(props.view().env)}</span>
-  </div>`
+/** The element a view shows itself with: what is bound at `dom` in its own environment, while it is in the page. */
+function domOf(env) {
+  const dom = env.own("dom").value
+  return dom instanceof Element && dom.isConnected ? dom : undefined
 }
 
-/** One environment's own bindings; its title selects it. A layer is only shown for the behavior it fronts, so it is not selectable. */
+/**
+ * Outlines the view `env` in `color`, inside its bounds so the edges show even
+ * at the viewport's: dashed as a preview while selecting, solid for the view
+ * an inspector shows. The label sits under the box at its left, or inside it
+ * near the bottom of the viewport. Drawn under the dock, so panels cover it — except for a
+ * panel itself, or what is shown in one, which is outlined over the dock.
+ * Nothing while the view has no element in the page.
+ */
+function Highlight(props) {
+  const box = measured(() => {
+    const dom = domOf(props.env())
+    return dom && bounds(dom)
+  })
+  const inDock = () => domOf(props.env())?.closest(".nomic-inspector-dock") !== null
+  return html`<${Show} when=${box}>
+    <div
+      class=${() =>
+        `nomic-inspector-highlight${props.dashed ? " dashed" : ""}${inDock() ? " above" : ""}${window.innerHeight - box().bottom < LABEL ? " tucked" : ""}`}
+      style=${() => {
+        const b = box()
+        return `--color:${props.color};left:${b.left}px;top:${b.top}px;width:${b.right - b.left}px;height:${b.bottom - b.top}px`
+      }}
+    >
+      <span>${() => titleOf(props.env())}</span>
+    </div>
+  <//>`
+}
+
+/**
+ * One environment's own bindings; its title selects it. A layer is only shown
+ * for the behavior it fronts, so it is not selectable. `folded` shows the title
+ * alone, for the environments under the selected one.
+ */
 function EnvSection(props) {
   const info = createMemo(() => (props.version(), props.env.inspect()))
   const layer = props.env.kind === "layer"
   const dom = () => info().bindings.find((b) => b.key === "dom")?.handle.value
   const subtitle = () => (layer ? packageName(props.behavior()?.package, props.names()) : atom(dom()))
-  return html`<section class=${() => `${layer ? "layer" : ""}${props.selected() ? " selected" : ""}`}>
+  return html`<section
+    class=${() => `${layer ? "layer" : ""}${props.selected() ? " selected" : ""}${props.folded ? " folded" : ""}`}
+  >
     <h2 onClick=${() => !layer && props.select()}>
       ${() => (layer ? "layer" : titleOf(props.env))}
       <${Show} when=${() => layer || dom() instanceof Element}>
         <span class="dim">${subtitle}</span>
       <//>
     </h2>
-    <${Show} when=${() => info().bindings.length} fallback=${html`<div class="dim">no bindings</div>`}>
-      <table>
-        <${For} each=${() => info().bindings.map((b) => b.handle)}
-          >${(handle) => BindingRow({ handle, info, useHandle: props.useHandle })}<//
-        >
-      </table>
+    <${Show} when=${() => !props.folded}>
+      <${Show} when=${() => info().bindings.length} fallback=${html`<div class="dim">no bindings</div>`}>
+        <table>
+          <${For} each=${() => info().bindings.map((b) => b.handle)}
+            >${(handle) => BindingRow({ handle, info, env: props.env, useHandle: props.useHandle })}<//
+          >
+        </table>
+      <//>
     <//>
   </section>`
 }
 
 /**
  * A binding: its key, the behavior that put it, and the value, live; the value
- * expands. Keyed by the handle, which lives as long as the binding does, so a
- * row keeps its state across changes to the rest of the environment.
+ * expands. When several behaviors put the key, the attribution is a picker of
+ * which one's value shows. Keyed by the visible handle, which lives as long as
+ * the binding does, so a row keeps its state across changes to the rest of the
+ * environment.
  */
 function BindingRow(props) {
   const binding = () => props.info().bindings.find((b) => b.handle === props.handle)
   const value = props.useHandle(props.handle)
   const [expanded, setExpanded] = createSignal(false)
-  // The attachment that put the binding, by the behavior's name when it is one attached here.
-  const by = () => binding()?.by ?? ""
-  const attribution = () => props.info().behaviors.find((b) => b.by === by())?.name ?? by()
+  // An attachment, by the behavior's name when it is one attached here.
+  const nameOf = (by) => props.info().behaviors.find((b) => b.by === by)?.name ?? by ?? ""
+  const by = () => binding()?.by
+  const alternatives = () => binding()?.alternatives ?? []
+  const choose = (e) => props.env.choose(binding().key, alternatives()[e.currentTarget.selectedIndex].by)
   return html`<tr>
     <td class="key">${() => binding()?.key}</td>
-    <td class="by" title=${by}>${attribution}</td>
+    <td class="by" title=${() => by() ?? ""}>
+      <${Show} when=${() => alternatives().length > 1} fallback=${html`<span>${() => nameOf(by())}</span>`}>
+        <select class="pick" title="Several behaviors put this; pick whose value shows" onChange=${choose}>
+          <${For} each=${alternatives}
+            >${(a) => html`<option selected=${() => a.by === by()}>${() => nameOf(a.by)}</option>`}<//
+          >
+        </select>
+      <//>
+    </td>
     <td>
       <details onToggle=${(e) => setExpanded(e.currentTarget.open)}>
         <summary><span class="value">${() => format(value(), 0)}</span></summary>
@@ -566,31 +613,19 @@ function BehaviorTree(props) {
   </div>`
 }
 
-/** The selected behavior: where it came from and the source of its module, at the pin it was mounted from. */
+/**
+ * The selected behavior, shown as a view of its behavior document: a fork of
+ * this inspector's view with the document at `data`, rendered by whatever
+ * behaviors support the `behavior` type (the `components/behavior` package).
+ */
 function BehaviorDetail(props) {
-  const b = () => props.behavior()
-  // Keyed by pin and module, so the tree changing under the same behavior does not refetch.
-  const [source] = createResource(
-    () => (b()?.pin && b()?.module ? `${b().pin} ${b().module}` : undefined),
-    () => props.source(b()),
-  )
+  // The document handle is stable for as long as the behavior is attached, unlike the
+  // inspect() records around it; keying on it keeps the view while the tree changes
+  // (creating a view changes the tree, so anything else would loop).
+  const handle = createMemo(() => props.behavior()?.handle)
   return html`<div class="detail">
-    <${Show} when=${b} fallback=${html`<div class="dim">select a behavior</div>`}>
-      <h2>${() => b()?.name}</h2>
-      <div class="dim">
-        ${() => packageName(b()?.package, props.names())}${() => (b()?.module ? ` · ${b().module}` : "")}
-      </div>
-      <${Show} when=${() => b()?.pin}><div class="dim">${() => b()?.by}</div><//>
-      <${Show} when=${() => !source.loading} fallback=${html`<div class="dim">loading…</div>`}>
-        <${Show}
-          when=${() => source() !== undefined}
-          fallback=${html`<div class="dim">
-            ${() => (source.error ? `⚠ ${source.error.message ?? source.error}` : "no source: not mounted from a package")}
-          </div>`}
-        >
-          <pre class="source">${source}</pre>
-        <//>
-      <//>
+    <${Show} when=${handle} fallback=${html`<div class="dim">select a behavior</div>`}>
+      ${() => props.View({ env: props.view, data: handle() })}
     <//>
   </div>`
 }
@@ -713,9 +748,9 @@ const CSS = `
   outline: 2px solid var(--color); outline-offset: -2px; }
 .nomic-inspector-highlight.above { z-index: 2147483002; }
 .nomic-inspector-highlight.dashed { outline-style: dashed; background: color-mix(in srgb, var(--color) 12%, transparent); }
-.nomic-inspector-highlight > span { position: absolute; left: 0; bottom: 100%; padding: 0 4px;
+.nomic-inspector-highlight > span { position: absolute; left: 0; top: 100%; padding: 0 4px;
   font: 11px/1.5 ui-monospace, Menlo, monospace; color: #fff; background: var(--color); white-space: nowrap; }
-.nomic-inspector-highlight.tucked > span { bottom: auto; top: 0; }
+.nomic-inspector-highlight.tucked > span { top: auto; bottom: 0; }
 .nomic-inspector-panel { position: relative; width: 520px; flex: none; display: flex; flex-direction: column; background: #fff;
   border-left: 1px solid #ddd; box-shadow: -4px 0 16px rgba(0,0,0,.08); }
 .nomic-inspector-panel .resize { position: absolute; top: 0; bottom: 0; left: 0; width: 6px; cursor: col-resize; z-index: 1; }
@@ -725,8 +760,11 @@ const CSS = `
 .nomic-inspector-panel header .name { flex: 1; }
 .nomic-inspector-panel header .name .dim { font-weight: normal; }
 .nomic-inspector-panel .bindings { flex: none; max-height: 50%; overflow: auto; border-bottom: 1px solid #ddd; }
+.nomic-inspector-panel .bindings.folded { border-bottom: 0; border-top: 1px solid #ddd; }
 .nomic-inspector-panel section { padding: 6px 10px; border-bottom: 1px solid #eee; }
 .nomic-inspector-panel section:last-child { border-bottom: 0; }
+.nomic-inspector-panel section.folded { padding-left: 7px; border-left: 3px solid #4a8cf7; }
+.nomic-inspector-panel section.folded h2 { margin: 0; }
 .nomic-inspector-panel section h2 { cursor: pointer; }
 .nomic-inspector-panel section h2:hover { background: #f6f6f6; }
 .nomic-inspector-panel section.layer h2 { cursor: default; background: none; }
@@ -739,7 +777,6 @@ const CSS = `
 .nomic-inspector-panel td.key { color: #0550ae; white-space: nowrap; }
 .nomic-inspector-panel .by, .nomic-inspector-panel .dim { color: #999; }
 .nomic-inspector-panel td.by { white-space: nowrap; }
-.nomic-inspector-panel .empty { padding: 20px 10px; color: #888; }
 .nomic-inspector-panel summary { cursor: pointer; }
 .nomic-inspector-panel pre { margin: 2px 0 4px; padding: 4px; max-height: 300px; overflow: auto;
   white-space: pre-wrap; word-break: break-all; background: #f6f6f6; }
@@ -752,7 +789,8 @@ const CSS = `
 .nomic-inspector-panel .tree .behavior:hover { background: #f2f2f2; }
 .nomic-inspector-panel .tree .behavior.selected { color: #fff; background: #4a8cf7; }
 .nomic-inspector-panel .detail { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 6px 10px; overflow: hidden; }
-.nomic-inspector-panel .detail h2 { cursor: default; }
-.nomic-inspector-panel .detail pre.source { flex: 1; max-height: none; margin: 6px 0 0; padding: 8px;
-  white-space: pre; word-break: normal; overflow: auto; tab-size: 2; }
+.nomic-inspector-panel .detail > .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.nomic-inspector-panel .detail > .view > * { flex: 1; min-height: 0; }
+.nomic-inspector-panel td.by .pick { max-width: 140px; padding: 0 2px; border: 1px solid #ccc; border-radius: 3px;
+  background: #fff; color: #4a8cf7; font: inherit; cursor: pointer; }
 `

@@ -1,13 +1,14 @@
 import { render } from "solid-js/web"
 import html from "solid-js/html"
 
-/** Draws `data.points` as a polyline into `dom`, from the origin; the canvas places it. */
+/** Puts at `dom` a drawing of `data.points` as a polyline from the origin; the canvas places it. */
 export default function drawLine(env) {
   const { useHandle } = env.get("imports/solid").value
-  const dom = env.get("dom").value
   const data = env.get("data")
+  const dom = document.createElement("div")
+  dom.className = "line"
 
-  return render(() => {
+  const dispose = render(() => {
     const line = useHandle(data)
     // The svg is a point that lets its content overflow.
     return html`<svg style="display:block;width:1px;height:1px;overflow:visible">
@@ -24,4 +25,6 @@ export default function drawLine(env) {
       />
     </svg>`
   }, dom)
+  env.put("dom", dom)
+  return dispose
 }

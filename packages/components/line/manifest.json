@@ -1,5 +1,6 @@
 {
   "provides": {
+    "draw-dots": { "module": "./src/draw-dots.js", "supportedDataType": "line" },
     "draw-line": { "module": "./src/draw-line.js", "supportedDataType": "line" }
   }
 }
