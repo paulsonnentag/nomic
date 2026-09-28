@@ -3,7 +3,7 @@ import { Portal, render } from "solid-js/web"
 import html from "solid-js/html"
 
 /** Shown in every panel header, so it is visible which inspector the page runs. Bump it with changes. */
-const VERSION = "0.0.6"
+const VERSION = "0.0.8"
 
 /** Highlight colors, one per open inspector, in the order they are opened. */
 const COLORS = ["#4a8cf7", "#d6409f", "#2a9d5c", "#e0851a", "#7c5cd6"]
@@ -163,9 +163,9 @@ function SelectButton(props) {
 
 const SELECT_ICON = `<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none"
     stroke="currentColor" stroke-linejoin="round">
-  <path d="M8.5 14.5 H2.5 V2.5 H14.5 V8.5" stroke-width="1.5" stroke-dasharray="1.5 1.5" />
-  <path d="M17.5 17.5 L7 7" stroke-width="1.8" stroke-linecap="round" />
-  <path d="M7 12.5 V7 H12.5" stroke-width="1.8" stroke-linecap="round" />
+  <path d="M10 16.5 H2.5 V2.5 H16.5 V10" stroke-width="1.5" stroke-dasharray="1.5 1.5" />
+  <path d="M17.5 17.5 L7.5 7.5" stroke-width="1.8" stroke-linecap="round" />
+  <path d="M7.5 12 V7.5 H12" stroke-width="1.8" stroke-linecap="round" />
 </svg>`
 
 // -- one inspector --
@@ -240,6 +240,7 @@ function openInspector(shared) {
         ...shared,
         view,
         data,
+        dom,
         select: () => shared.toggle(instance),
         selecting: () => shared.selecting()?.by === instance,
       }),
@@ -290,6 +291,7 @@ function Inspector(props) {
     })
 
   return html`
+    <div class="resize" onPointerDown=${(e) => resize(e, props.dom)}></div>
     <header>
       ${() => SelectButton({ active: props.selecting, onClick: props.select, color: props.color })}
       <span class="name">inspector <span class="dim">${VERSION}</span></span>
@@ -319,6 +321,31 @@ function Inspector(props) {
       <${Show} when=${target}>${() => Highlight({ view: target, dashed: false, color: props.color })}<//>
     <//>
   `
+}
+
+const WIDTH = { min: 320, margin: 80 } // px: the narrowest panel, and the page kept visible beside the dock
+
+/** Drags the left edge of `panel` from the pointer event `e`: the panel grows to the left, up to the viewport. */
+function resize(e, panel) {
+  const handle = e.currentTarget
+  const start = { x: e.clientX, width: panel.getBoundingClientRect().width }
+  const max = () => window.innerWidth - WIDTH.margin - (panel.parentElement.getBoundingClientRect().width - start.width)
+  const move = (ev) => {
+    const width = Math.max(WIDTH.min, Math.min(max(), start.width + start.x - ev.clientX))
+    panel.style.width = `${width}px`
+  }
+  const stop = () => {
+    handle.removeEventListener("pointermove", move)
+    handle.removeEventListener("pointerup", stop)
+    handle.removeEventListener("pointercancel", stop)
+    handle.classList.remove("dragging")
+  }
+  handle.setPointerCapture(e.pointerId)
+  handle.classList.add("dragging")
+  handle.addEventListener("pointermove", move)
+  handle.addEventListener("pointerup", stop)
+  handle.addEventListener("pointercancel", stop)
+  e.preventDefault()
 }
 
 /** A signal that changes whenever the structure of the tree under `root` does, at most once a frame. */
@@ -689,8 +716,10 @@ const CSS = `
 .nomic-inspector-highlight > span { position: absolute; left: 0; bottom: 100%; padding: 0 4px;
   font: 11px/1.5 ui-monospace, Menlo, monospace; color: #fff; background: var(--color); white-space: nowrap; }
 .nomic-inspector-highlight.tucked > span { bottom: auto; top: 0; }
-.nomic-inspector-panel { width: 520px; flex: none; display: flex; flex-direction: column; background: #fff;
+.nomic-inspector-panel { position: relative; width: 520px; flex: none; display: flex; flex-direction: column; background: #fff;
   border-left: 1px solid #ddd; box-shadow: -4px 0 16px rgba(0,0,0,.08); }
+.nomic-inspector-panel .resize { position: absolute; top: 0; bottom: 0; left: 0; width: 6px; cursor: col-resize; z-index: 1; }
+.nomic-inspector-panel .resize:hover, .nomic-inspector-panel .resize.dragging { background: color-mix(in srgb, #4a8cf7 35%, transparent); }
 .nomic-inspector-panel header { display: flex; align-items: center; gap: 8px; padding: 6px 10px;
   border-bottom: 1px solid #eee; font-weight: bold; }
 .nomic-inspector-panel header .name { flex: 1; }
