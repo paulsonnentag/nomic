@@ -17,16 +17,48 @@ let count = 0
  */
 class Env {
   constructor(parent) {
+    this.kind = "env"
     this.parent = parent
     this.slots = new Map() // key -> { handle, by, stop }
     this.listeners = new Map() // key -> Set<fn>
+    this.watchers = new Set()
     this.forks = new Set()
-    this.attached = [] // [{ behavior, detach }]
+    this.attached = [] // [{ behavior, meta, by, view, detach }]
     this.destroyed = false
   }
 
   get behaviors() {
     return this.attached.map((a) => a.behavior)
+  }
+
+  // -- inspecting --
+
+  /**
+   * What is here, for tooling: the bindings made in this environment and who
+   * made them, the behaviors attached (with what `mount` recorded about them:
+   * package, pin, manifest name and module path, and the layer they see the
+   * environment through), and the forks and layers below.
+   */
+  inspect() {
+    return {
+      kind: this.kind,
+      bindings: [...this.slots].map(([key, slot]) => ({ key, handle: slot.handle, by: slot.by })),
+      behaviors: this.attached.map(({ behavior, meta, by, view }) => ({
+        by,
+        name: meta?.name ?? behavior.name,
+        package: meta?.package,
+        pin: meta?.pin,
+        module: meta?.module,
+        layer: view === this ? undefined : view,
+      })),
+      forks: [...this.forks],
+    }
+  }
+
+  /** Calls `fn` when the structure here or below changes: a binding put or dropped, a behavior attached or detached, a fork made or destroyed. */
+  watch(fn) {
+    this.watchers.add(fn)
+    return () => this.watchers.delete(fn)
   }
 
   // -- reading --
@@ -56,8 +88,9 @@ class Env {
 
   // -- behaviors --
 
-  attach(behavior) {
-    return this.attachThrough(this, behavior)
+  /** Attaches `behavior`; `meta` ({ package, name }) says where it came from, for `inspect`. */
+  attach(behavior, meta) {
+    return this.attachThrough(this, behavior, meta)
   }
 
   // -- lifetime --
@@ -65,6 +98,7 @@ class Env {
   fork() {
     const child = new Env(this)
     this.forks.add(child)
+    this.changed()
     return child
   }
 
@@ -81,15 +115,17 @@ class Env {
     for (const slot of this.slots.values()) slot.stop()
     this.slots.clear()
     this.listeners.clear()
+    this.watchers.clear()
     this.parent?.forks.delete(this)
+    this.parent?.changed()
   }
 
   // -- internals, shared with layers and the attributed view of a behavior --
 
   /** Attaches `behavior` here; it sees the environment through `view` (this, or a layer in front of it). */
-  attachThrough(view, behavior) {
+  attachThrough(view, behavior, meta) {
     if (this.destroyed) return () => {} // behaviors may arrive after the view that wanted them is gone
-    const by = `${behavior.name || "behavior"}#${count++}`
+    const by = `${meta?.name ?? behavior.name ?? "behavior"}#${count++}`
     let teardown
     let detached = false
     const detach = () => {
@@ -100,10 +136,12 @@ class Env {
         for (const [key, slot] of [...env.slots]) if (slot.by === by) env.drop(key)
       }
       this.attached = this.attached.filter((a) => a !== entry)
+      this.changed()
     }
-    const entry = { behavior, detach }
+    const entry = { behavior, meta, by, view, detach }
     this.attached.push(entry)
     teardown = behavior(attributed(view, by, detach))
+    this.changed()
     return detach
   }
 
@@ -121,6 +159,7 @@ class Env {
     // Subscribing forwards every change of the value into the environment,
     // and the first call is the notification for this set.
     slot.stop = handle.subscribe(() => this.notify(key))
+    this.changed()
     return this.live(key)
   }
 
@@ -181,10 +220,17 @@ class Env {
     slot.stop()
     this.slots.delete(key)
     this.notify(key)
+    this.changed()
   }
 
   notify(key) {
     this.fire(key, this)
+  }
+
+  /** Tells the watchers here and above that the structure changed. */
+  changed() {
+    for (const fn of [...this.watchers]) fn()
+    this.parent?.changed()
   }
 
   /** Tells the listeners at `key` and below it, here and in every fork that does not shadow them on the way to `origin`. */
@@ -213,6 +259,7 @@ class Env {
 class Layer extends Env {
   constructor(base, bindings) {
     super(base)
+    this.kind = "layer"
     this.base = base
     this.keys = Object.keys(bindings)
     base.forks.add(this) // so changes behind the layer reach listeners in front of it
@@ -233,8 +280,8 @@ class Layer extends Env {
     return this.covered(key) ? super.set(key, handle, by) : this.base.set(key, handle, by)
   }
 
-  attach(behavior) {
-    return this.base.attachThrough(this, behavior)
+  attach(behavior, meta) {
+    return this.base.attachThrough(this, behavior, meta)
   }
 
   fork() {
@@ -266,9 +313,11 @@ function attributed(env, by, detach) {
     get: (key) => env.live(key),
     put: (key, value) => env.set(key, isHandle(value) ? value : createHandle(value), by),
     entries: () => env.entries(),
-    attach: (behavior) => env.attach(behavior),
+    attach: (behavior, meta) => env.attach(behavior, meta),
     fork: () => env.fork(),
     layer: (bindings) => env.layer(bindings),
+    inspect: () => env.inspect(),
+    watch: (fn) => env.watch(fn),
     destroy: detach,
   }
 }

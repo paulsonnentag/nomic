@@ -1,9 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
 
-/** Package paths (posix, relative to the checkout root) → headless doc urls; "" is the root. */
-export type Sidecar = { [path: string]: string }
-
 export function readJson<T = any>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8"))
 }
@@ -37,10 +34,6 @@ export function findPackages(base: string): string[] {
       if (statSync(child).isDirectory()) walk(child, path ? `${path}/${name}` : name)
     }
   }
-}
-
-export function sidecarPath(root: string): string {
-  return join(root, ".pushwork", "nomic-tree.json")
 }
 
 /** The nearest ancestor of `dir` (inclusive) that holds a `.pushwork/` directory; undefined if none. */

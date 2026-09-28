@@ -24,6 +24,10 @@ async function run(element, repo) {
   const solid = await core.resolve(env, `${solidUrl}/src/index.js`)
   const canvas = await canvasDoc(repo)
   solid.mountRoot(env, core.fromDoc(canvas), element)
+
+  // Page-level tools attach to the root environment, so they see every view. Missing is fine.
+  const inspectorUrl = await core.docAt(repo, ROOT, "inspector")
+  if (inspectorUrl) await core.mount(env, inspectorUrl)
 }
 
 /** The headless url of the entry named `name` in the folder doc at `folderUrl`. */

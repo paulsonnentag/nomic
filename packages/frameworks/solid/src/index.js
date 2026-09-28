@@ -7,9 +7,9 @@ export default function solid(env) {
 
   /**
    * Shows a document: forks the environment, puts the document's handle at
-   * `data`, a fresh element at `dom` and an empty `behaviors` list, and mounts
-   * the `loader` package, which decides what else the view gets. Destroys the
-   * fork when Solid disposes the component.
+   * `data` and a fresh element at `dom`, and mounts the `loader` package, which
+   * decides what else the view gets. Destroys the fork when Solid disposes the
+   * component.
    */
   function View(props) {
     const dom = document.createElement("div")
@@ -17,7 +17,6 @@ export default function solid(env) {
     const view = props.env.fork()
     view.put("data", props.data)
     view.put("dom", dom)
-    view.put("behaviors", [])
     mountLoader(view).catch(console.error)
     onCleanup(() => view.destroy())
     return dom

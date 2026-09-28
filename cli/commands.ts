@@ -1,68 +1,24 @@
 import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
-import { init as pushworkInit, sync as pushworkSync } from "pushwork"
-import type { PushworkConfig } from "pushwork"
-import { recorded } from "./shape.js"
-import {
-  checkoutRootOf,
-  findPackages,
-  packageRootOf,
-  posixRelative,
-  readJson,
-  sidecarPath,
-  sortKeys,
-  writeJson,
-  type Sidecar,
-} from "./lib.ts"
-
-/** The shape module, by the absolute path pushwork persists in `.pushwork/config.json`. */
-export const SHAPE_PATH = fileURLToPath(new URL("./shape.js", import.meta.url))
+import { pathToFileURL } from "node:url"
+import { packagesOf, urlAt, withCheckout } from "./checkout.ts"
+import { checkoutRootOf, findPackages, packageRootOf, posixRelative, readJson, sortKeys, writeJson } from "./lib.ts"
 
 const DEFAULT_MODULE = "src/index.js"
 const PAGE_PROVIDED = [/^solid-js(\/|$)/, /^@automerge\//]
 
 type ImportMap = { imports?: { [key: string]: string }; scopes?: { [scope: string]: { [key: string]: string } } }
 
-/** Mints every doc for the checkout at `dir`, writes the sidecar, and returns the root url. */
-export async function init(dir: string, report = log, warn = console.warn): Promise<string> {
-  const root = resolve(dir)
-  const { url, files } = await pushworkInit(
-    { dir: root, backend: "subduction", shape: SHAPE_PATH, artifactDirectories: [] },
-    report,
-    warn,
-  )
-  writeSidecar(root, warn)
-  report(`${files} files in ${url}`)
-  return url
-}
-
-/** Syncs the checkout at `dir` (re-pointing pushwork at this CLI's shape module if it moved) and writes the sidecar. */
-export async function sync(dir: string, report = log, warn = console.warn) {
-  const root = checkoutRootOf(dir)
-  if (!root) throw new Error(`${resolve(dir)} is not inside a nomic checkout: run \`nomic init\` first`)
-  const configPath = join(root, ".pushwork", "config.json")
-  const config = readJson<PushworkConfig>(configPath)
-  if (config.shape !== SHAPE_PATH) {
-    writeJson(configPath, { ...config, shape: SHAPE_PATH })
-    report(`shape: ${config.shape} → ${SHAPE_PATH}`)
-  }
-  await pushworkSync(root, {}, report, warn)
-  writeSidecar(root, warn)
-}
-
 /**
  * Fills the imports of every package's importmap.json under `dir` that still
  * name a checkout path (`"core": "/core"`, `"handle": "/core/src/handle.js"`)
- * with the synced package's url from the sidecar. Returns what changed.
+ * with the synced package's url, read from the checkout's documents. Returns
+ * what changed.
  */
-export function install(dir: string): string[] {
+export async function install(dir: string): Promise<string[]> {
   const base = resolve(dir)
-  const root = checkoutRootOf(base)
-  if (!root || !existsSync(sidecarPath(root))) {
-    throw new Error(`no ${sidecarPath(root ?? base)}: run \`nomic init\` or \`nomic sync\` first`)
-  }
-  const sidecar = readJson<Sidecar>(sidecarPath(root))
+  const root = checkoutRoot(base)
+  const synced = await withCheckout(root, (repo, config) => packagesOf(repo, config.rootUrl))
   const changes: string[] = []
   for (const pkg of findPackages(base)) {
     const path = join(base, pkg, "importmap.json")
@@ -71,10 +27,10 @@ export function install(dir: string): string[] {
     const imports = { ...(map.imports ?? {}) }
     for (const [name, value] of Object.entries(imports)) {
       if (!value.startsWith("/")) continue // already a url
-      const located = locate(sidecar, value.slice(1))
+      const located = locate(synced, value.slice(1))
       if (!located)
         throw new Error(
-          `${pkg || "."}/importmap.json: "${name}": ${value} is not a synced package: run \`nomic sync\` first`,
+          `${pkg || "."}/importmap.json: "${name}": ${value} is not a synced package: run \`pushwork sync\` first`,
         )
       imports[name] = `${located.url}/${located.path || DEFAULT_MODULE}`
       changes.push(`${pkg || "."}: ${name} → ${imports[name]}`)
@@ -112,29 +68,26 @@ export async function add(dir: string, specs: string[], warn = console.warn) {
 }
 
 /** The synced doc url of the folder or package at `path` (relative to `dir`) in the checkout around `dir`. */
-export function url(dir: string, path: string): string {
-  const root = checkoutRootOf(dir)
-  if (!root || !existsSync(sidecarPath(root))) throw new Error(`no sidecar: run \`nomic init\` or \`nomic sync\` first`)
-  const sidecar = readJson<Sidecar>(sidecarPath(root))
+export async function url(dir: string, path: string): Promise<string> {
+  const root = checkoutRoot(dir)
   const key = posixRelative(root, resolve(dir, path))
-  const found = sidecar[key]
+  const found = await withCheckout(root, (repo, config) => urlAt(repo, config.rootUrl, key))
   if (!found) throw new Error(`"${key || "."}" is not a synced folder or package`)
   return found
 }
 
-/** Writes what the shape recorded during the last encode/decode to `.pushwork/nomic-tree.json`. */
-function writeSidecar(root: string, warn: (message: string) => void) {
-  if (recorded.size === 0) warn("the shape recorded no packages; the sidecar will be empty")
-  writeJson(sidecarPath(root), sortKeys(Object.fromEntries(recorded)))
+/** The checkout `dir` is in; throws when there is none. */
+function checkoutRoot(dir: string): string {
+  const root = checkoutRootOf(dir)
+  if (!root) throw new Error(`${resolve(dir)} is not inside a pushwork checkout: run \`pushwork init\` first`)
+  return root
 }
 
-/** The package in the sidecar that `checkoutPath` is in, and the path of the file inside it. */
-function locate(sidecar: Sidecar, checkoutPath: string): { url: string; path: string } | undefined {
-  const packages = Object.keys(sidecar)
-    .filter(Boolean)
-    .sort((a, b) => b.length - a.length)
-  const found = packages.find((pkg) => checkoutPath === pkg || checkoutPath.startsWith(`${pkg}/`))
-  return found === undefined ? undefined : { url: sidecar[found], path: checkoutPath.slice(found.length + 1) }
+/** The synced package that `checkoutPath` is in, and the path of the file inside it. */
+function locate(packages: Map<string, string>, checkoutPath: string): { url: string; path: string } | undefined {
+  const paths = [...packages.keys()].filter(Boolean).sort((a, b) => b.length - a.length)
+  const found = paths.find((pkg) => checkoutPath === pkg || checkoutPath.startsWith(`${pkg}/`))
+  return found === undefined ? undefined : { url: packages.get(found)!, path: checkoutPath.slice(found.length + 1) }
 }
 
 /** Whether an importmap value names a synced package (or one still to be installed) rather than an external url. */

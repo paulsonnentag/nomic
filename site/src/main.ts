@@ -4,16 +4,12 @@ import { createRepo, initWasm } from "@inkandswitch/patchwork"
 import type { Repo } from "@automerge/automerge-repo"
 import { MessageChannelNetworkAdapter } from "@automerge/automerge-repo-network-messagechannel"
 
-/** The packages root folder doc — the only hardcoded url. Filled in after the first `nomic init`. */
-const PACKAGES_ROOT_URL = ""
+/** The packages root folder doc — the only hardcoded url. Filled in after `pushwork init` (its printed url, or `nomic url .`). */
+const PACKAGES_ROOT_URL = "automerge:2Sgy8MTkTyZumeW6dxjaSXswVnyT"
 
 await main()
 
 async function main() {
-  if (!PACKAGES_ROOT_URL) {
-    document.getElementById("root")!.textContent = "Set PACKAGES_ROOT_URL in site/src/main.ts"
-    return
-  }
   const sw = await setupServiceWorker()
   const repo = await setupRepo(sw)
   const module = await import(/* @vite-ignore */ `/${encodeURIComponent(PACKAGES_ROOT_URL)}/bootstrap.js`)

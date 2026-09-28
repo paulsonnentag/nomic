@@ -1,15 +1,17 @@
 import { basePath, contentOf, headless, isDocUrl, pinOf, splitTarget } from "./urls.js"
 
 /**
- * Mounts the package at `packageUrl` into the view `env`: resolves the package's
+ * Mounts the package at `packageUrl` into `env`: resolves the package's
  * imports, then attaches every provided behavior whose supportedDataType is
- * unset or equals the view's data type, in manifest order, through a layer
- * holding those imports at `imports`. Records { package, name } for each in
- * `behaviors` when the view keeps such a list. Returns a detach function.
+ * unset or equals the data type of the view (none, outside a view), in manifest
+ * order, through a layer holding those imports at `imports`. Each attachment
+ * carries { package, pin, name, module } for `inspect`: the package's headless
+ * url, the pin it was read at, the manifest entry and its module path. Returns
+ * a detach function.
  */
 export async function mount(env, packageUrl) {
   const repo = env.get("repo").value
-  const type = env.get("data").value["@patchwork"].type
+  const type = env.get("data").value?.["@patchwork"]?.type
   const pkg = await snapshot(repo, packageUrl)
   const imports = await resolveImports(env, pkg, [pkg.pin])
   const applicable = Object.entries(pkg.manifest.provides ?? {}).filter(
@@ -18,13 +20,10 @@ export async function mount(env, packageUrl) {
   // Every module arrives before any attaches: the manifest order holds and a view is never half mounted.
   const modules = await Promise.all(applicable.map(([, b]) => pkg.import(b.module)))
   const layer = env.layer({ imports })
-  const detach = modules.map((m) => layer.attach(m.default))
-  const behaviors = env.get("behaviors")
-  if (behaviors.value) {
-    behaviors.change((list) => {
-      for (const [name] of applicable) list.push({ package: headless(packageUrl), name })
-    })
-  }
+  const detach = modules.map((m, i) => {
+    const [name, b] = applicable[i]
+    return layer.attach(m.default, { package: pkg.url, pin: pkg.pin, name, module: b.module })
+  })
   return () => detach.reverse().forEach((d) => d())
 }
 
@@ -68,9 +67,9 @@ async function snapshot(repo, packageUrl) {
 }
 
 async function read(repo, pin) {
-  const dir = (await repo.find(pin)).doc()
-  const manifest = JSON.parse(await fileText(repo, dir, "manifest.json"))
-  const importmap = dir["importmap.json"] ? JSON.parse(await fileText(repo, dir, "importmap.json")) : {}
+  const manifest = JSON.parse(await fileText(repo, pin, "manifest.json"))
+  const importmapUrl = await fileUrl(repo, pin, "importmap.json")
+  const importmap = importmapUrl ? JSON.parse(contentOf((await repo.find(importmapUrl)).doc())) : {}
   if (importmap.scopes) injectImportMap({ scopes: importmap.scopes }) // external packages may bring jspm scopes
   const base = basePath(pin)
   return {
@@ -91,8 +90,25 @@ function injectImportMap(map) {
   document.head.appendChild(script)
 }
 
-async function fileText(repo, dir, path) {
-  const url = dir[path]
-  if (typeof url !== "string") throw new Error(`no "${path}" in ${dir["@patchwork"]?.title ?? "package"}`)
+/** The text of the file at `path` in the pinned package; throws when there is none. */
+export async function fileText(repo, pin, path) {
+  const url = await fileUrl(repo, pin, path)
+  if (!url) throw new Error(`no "${path}" in ${pin}`)
   return contentOf((await repo.find(url)).doc())
+}
+
+/**
+ * The url of the file at `path` in the pinned package, following the package's
+ * folder docs. Their links are pinned too, so the file is the one of the
+ * snapshot. Undefined when a step is missing.
+ */
+export async function fileUrl(repo, pin, path) {
+  let url = pin
+  for (const name of path.replace(/^\.\//, "").split("/").filter(Boolean)) {
+    const folder = (await repo.find(url)).doc()
+    const link = folder?.docs?.find((d) => d.name === name)
+    if (!link) return undefined
+    url = link.url
+  }
+  return url
 }
