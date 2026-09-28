@@ -5,8 +5,6 @@ export function createEnvironment() {
   return new Env(undefined)
 }
 
-let count = 0
-
 /**
  * A scope of named values. Keys are paths: a binding at `imports` covers
  * `imports/core`, whose lookup reaches into the bound value. Forks see their
@@ -34,10 +32,11 @@ class Env {
   // -- inspecting --
 
   /**
-   * What is here, for tooling: the bindings made in this environment and who
-   * made them, the behaviors attached (with what `mount` recorded about them:
-   * package, pin, manifest name and module path, and the layer they see the
-   * environment through), and the forks and layers below.
+   * What is here, for tooling: the bindings made in this environment and the
+   * attachment that made them (`by`: the behavior's file at its pin, or its
+   * function name), the behaviors attached (with what `mount` recorded about
+   * them: package, pin, manifest name and module path, and the layer they see
+   * the environment through), and the forks and layers below.
    */
   inspect() {
     return {
@@ -122,10 +121,16 @@ class Env {
 
   // -- internals, shared with layers and the attributed view of a behavior --
 
-  /** Attaches `behavior` here; it sees the environment through `view` (this, or a layer in front of it). */
+  /**
+   * Attaches `behavior` here; it sees the environment through `view` (this, or
+   * a layer in front of it). The attachment is known by the behavior's file at
+   * its pin when it was mounted from a package, else by the function's name;
+   * the same behavior attaches to an environment once.
+   */
   attachThrough(view, behavior, meta) {
     if (this.destroyed) return () => {} // behaviors may arrive after the view that wanted them is gone
-    const by = `${meta?.name ?? behavior.name ?? "behavior"}#${count++}`
+    const by = meta ? `${meta.pin}/${meta.module}` : behavior.name || "behavior"
+    if (this.attached.some((a) => a.by === by)) throw new Error(`"${by}" is already attached here`)
     let teardown
     let detached = false
     const detach = () => {

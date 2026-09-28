@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { init as pushworkInit, migrate, sync as pushworkSync, versionLabel, type SyncSnapshot } from "pushwork"
 import { packagesOf, urlAt, withCheckout } from "./checkout.ts"
 import { checkoutRootOf, findPackages, packageRootOf, posixRelative, readJson, sortKeys, writeJson } from "./lib.ts"
 
@@ -8,6 +9,29 @@ const DEFAULT_MODULE = "src/index.js"
 const PAGE_PROVIDED = [/^solid-js(\/|$)/, /^@automerge\//]
 
 type ImportMap = { imports?: { [key: string]: string }; scopes?: { [scope: string]: { [key: string]: string } } }
+type Progress = { report: (phase: string) => void; warn: (message: string) => void }
+
+/**
+ * Records the disk state of the checkout around `dir` into its documents and
+ * syncs them with the server, through nomic's pushwork. An old checkout format
+ * is migrated first. Returns where the root doc stands relative to the server.
+ */
+export async function sync(dir: string, { report, warn }: Progress): Promise<SyncSnapshot | undefined> {
+  const root = checkoutRoot(dir)
+  const migrated = await migrate(root)
+  if (migrated.steps.length) report(`migrated checkout ${versionLabel(migrated.from)} → ${migrated.to}`)
+  return pushworkSync(root, {}, report, warn)
+}
+
+/** Makes `dir` a checkout in the folder shape and publishes it. Returns the root doc url. */
+export async function init(dir: string, { report, warn }: Progress): Promise<string> {
+  const summary = await pushworkInit(
+    { dir: resolve(dir), backend: "subduction", shape: "patchwork-folder" },
+    report,
+    warn,
+  )
+  return summary.url
+}
 
 /**
  * Fills the imports of every package's importmap.json under `dir` that still
@@ -30,7 +54,7 @@ export async function install(dir: string): Promise<string[]> {
       const located = locate(synced, value.slice(1))
       if (!located)
         throw new Error(
-          `${pkg || "."}/importmap.json: "${name}": ${value} is not a synced package: run \`pushwork sync\` first`,
+          `${pkg || "."}/importmap.json: "${name}": ${value} is not a synced package: run \`nomic sync\` first`,
         )
       imports[name] = `${located.url}/${located.path || DEFAULT_MODULE}`
       changes.push(`${pkg || "."}: ${name} → ${imports[name]}`)
@@ -79,7 +103,7 @@ export async function url(dir: string, path: string): Promise<string> {
 /** The checkout `dir` is in; throws when there is none. */
 function checkoutRoot(dir: string): string {
   const root = checkoutRootOf(dir)
-  if (!root) throw new Error(`${resolve(dir)} is not inside a pushwork checkout: run \`pushwork init\` first`)
+  if (!root) throw new Error(`${resolve(dir)} is not inside a pushwork checkout: run \`nomic init\` first`)
   return root
 }
 

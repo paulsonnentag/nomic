@@ -1,31 +1,27 @@
-# pushwork
+# pushwork (nomic's fork)
 
-Bidirectional directory synchronization using Automerge CRDTs. Single package,
-pnpm, TypeScript.
+Bidirectional directory synchronization using Automerge CRDTs. This is a fork
+of [inkandswitch/pushwork](https://github.com/inkandswitch/pushwork), branch
+`pin-all-links`, vendored into nomic with `git subtree` (prefix `pushwork/`).
+It differs from the published package in that every file and folder link in a
+folder doc is heads-pinned, so a pinned url names exact content all the way
+down.
 
-## changesets
+It is a yarn workspace of nomic, not a pnpm project: dependencies come from
+the root `yarn install`, and `yarn workspace pushwork build` (run by the root
+`prepare`) compiles `src/` to `dist/` with `tsc`. The nomic CLI imports it as
+`pushwork`; `nomic sync` and `nomic init` call its functions. There are no
+changesets and nothing is published from here.
 
-Every change that affects published behaviour ships with a changeset. Run:
+Pulling upstream changes:
 
 ```
-pnpm changeset
+git subtree pull --prefix=pushwork git@github.com:inkandswitch/pushwork.git <branch>
 ```
-
-Pick the bump (patch for fixes, minor for features, major for breaking changes)
-and write a one-line summary in the imperative. The generated file in
-`.changeset/` gets committed alongside the code.
-
-Changes that don't affect the published package — tests, CI, docs, internal
-refactors with no observable difference — don't need one. If CI complains and
-the change really is invisible to users, `pnpm changeset --empty`.
-
-Don't edit `version` in `package.json` or write `CHANGELOG.md` by hand. The
-release workflow does both when the changesets land on `main`.
 
 ## checks
 
 ```
-pnpm test
-pnpm typecheck
-pnpm lint
+yarn workspace pushwork test
+yarn workspace pushwork typecheck
 ```

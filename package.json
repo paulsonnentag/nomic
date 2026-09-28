@@ -5,13 +5,15 @@
   "type": "module",
   "workspaces": [
     "site",
-    "cli"
+    "cli",
+    "pushwork"
   ],
   "scripts": {
     "dev": "yarn workspace site dev",
     "build": "yarn workspace site build",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "prepare": "yarn workspace pushwork build"
   },
   "devDependencies": {
     "prettier": "^3.3.3"

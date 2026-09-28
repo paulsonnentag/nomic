@@ -22,7 +22,7 @@ export async function mount(env, packageUrl) {
   const layer = env.layer({ imports })
   const detach = modules.map((m, i) => {
     const [name, b] = applicable[i]
-    return layer.attach(m.default, { package: pkg.url, pin: pkg.pin, name, module: b.module })
+    return layer.attach(m.default, { package: pkg.url, pin: pkg.pin, name, module: b.module.replace(/^\.\//, "") })
   })
   return () => detach.reverse().forEach((d) => d())
 }

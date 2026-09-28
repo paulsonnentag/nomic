@@ -1,7 +1,8 @@
 # nomic
 
 A checkout of packages (`packages/`) hosted in Automerge through pushwork, a
-site (`site/`) that boots them from the sync server, and a small CLI (`cli/`).
+site (`site/`) that boots them from the sync server, a small CLI (`cli/`), and
+nomic's fork of pushwork (`pushwork/`, see its AGENTS.md).
 
 ## Finishing work
 
@@ -10,7 +11,7 @@ change is ready:
 
 1. `cd packages && node ../cli/main.ts install` if an importmap.json gained a
    checkout path (`"core": "/core"`).
-2. `cd packages && pushwork sync` so the docs match the disk.
+2. `cd packages && node ../cli/main.ts sync` so the docs match the disk.
 3. Tell the user what to test in the browser, concretely: which view to open,
    what to click, what they should see.
 
@@ -19,12 +20,15 @@ fine while working; the browser is the user's.
 
 ## Checkout
 
-`packages/` is a pushwork checkout with the built-in `patchwork-folder` shape:
-every directory is a folder doc, and a package is a folder holding a
-`manifest.json`. The `pushwork` on the PATH must be the same version as
-`node_modules/pushwork` — the CLI reads pushwork's store through its `dist/`.
+`packages/` is a pushwork checkout with the `patchwork-folder` shape: every
+directory is a folder doc, and a package is a folder holding a
+`manifest.json`. Every link carries heads, so a pinned url names exact content
+down to the files, and a sync that changes a file moves the root's heads. Only
+use `nomic sync`/`nomic init` (the fork), never another pushwork: the
+published one writes headless links.
 
 ## Checks
 
 - `cd cli && npx tsc --noEmit -p tsconfig.json`
 - `npx prettier --check .`
+- `yarn workspace pushwork typecheck` after changing the fork

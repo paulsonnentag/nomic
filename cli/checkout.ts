@@ -2,28 +2,20 @@
 // is `patchwork-folder` docs ({ title, docs: [{ name, type, url }] }), and a
 // package is a folder that holds a manifest.json.
 
-import { createRequire } from "node:module"
-import { dirname, join } from "node:path"
-import type { PushworkConfig } from "pushwork"
-
-// pushwork's public entry exports only its commands; opening the store lives in
-// its dist. Requiring those files by path sidesteps the package's `exports`.
-const require = createRequire(import.meta.url)
-const dist = dirname(require.resolve("pushwork"))
-const { openRepo, safeShutdown } = require(join(dist, "repo.js"))
-const { readConfig, storageDir } = require(join(dist, "config.js"))
+import { openRepo, readConfig, safeShutdown, storageDir, type PushworkConfig } from "pushwork"
 
 type Link = { name: string; type: string; url: string }
 type Folder = { title?: string; docs: Link[] }
-type Repo = { find(url: string): Promise<{ doc(): unknown }> }
+type Repo = Awaited<ReturnType<typeof openRepo>>
+type DocId = Parameters<Repo["find"]>[0] // automerge-repo brands its ids; the docs here hold them as plain strings
 
 /** Runs `fn` with the checkout's repo open offline, and shuts it down after. */
 export async function withCheckout<T>(
   root: string,
   fn: (repo: Repo, config: PushworkConfig) => Promise<T>,
 ): Promise<T> {
-  const config: PushworkConfig = await readConfig(root)
-  const repo: Repo = await openRepo(config.backend, storageDir(root), { offline: true })
+  const config = await readConfig(root)
+  const repo = await openRepo(config.backend, storageDir(root), { offline: true })
   try {
     return await fn(repo, config)
   } finally {
@@ -64,7 +56,7 @@ export async function urlAt(repo: Repo, rootUrl: string, path: string): Promise<
 
 /** The folder doc at `url`; undefined when the doc is not a folder. */
 async function folderAt(repo: Repo, url: string): Promise<Folder | undefined> {
-  const doc = (await repo.find(headless(url))).doc() as Partial<Folder> | undefined
+  const doc = (await repo.find(headless(url) as DocId)).doc() as Partial<Folder> | undefined
   return Array.isArray(doc?.docs) ? (doc as Folder) : undefined
 }
 

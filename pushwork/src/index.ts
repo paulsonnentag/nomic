@@ -21,7 +21,15 @@ export {
 } from "./attributes.js";
 export type { Snarf, SnarfEntry } from "./snarf.js";
 export type { Backend, PushworkConfig } from "./config.js";
-export { CONFIG_VERSION } from "./config.js";
+export { CONFIG_VERSION, readConfig, storageDir } from "./config.js";
+// Opening a checkout's store directly, for tools that read the docs offline.
+export {
+	openRepo,
+	safeShutdown,
+	isTransportError,
+	isClosedStorageError,
+} from "./repo.js";
+export type { SyncSnapshot } from "./repo.js";
 export {
 	migrate,
 	migrations,

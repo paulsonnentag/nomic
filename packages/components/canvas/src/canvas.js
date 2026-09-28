@@ -6,7 +6,7 @@ export default function canvas(env) {
     width: "640px",
     height: "480px",
     background: "white",
-    border: "2px solid #4a8cf7",
+    border: "2px solid #ccc",
     borderRadius: "4px",
     overflow: "hidden",
     touchAction: "none",
