@@ -3,7 +3,7 @@ import { Portal, render } from "solid-js/web"
 import html from "solid-js/html"
 
 /** Shown in every panel header, so it is visible which inspector the page runs. Bump it with changes. */
-const VERSION = "0.0.15"
+const VERSION = "0.0.16"
 
 /** Highlight colors, one per open inspector, in the order they are opened. */
 const COLORS = ["#4a8cf7", "#d6409f", "#2a9d5c", "#e0851a", "#7c5cd6"]
@@ -763,7 +763,6 @@ const CSS = `
 .nomic-inspector-panel .bindings.folded { border-bottom: 0; border-top: 1px solid #ddd; }
 .nomic-inspector-panel section { padding: 6px 10px; border-bottom: 1px solid #eee; }
 .nomic-inspector-panel section:last-child { border-bottom: 0; }
-.nomic-inspector-panel section.folded { padding-left: 7px; border-left: 3px solid #4a8cf7; }
 .nomic-inspector-panel section.folded h2 { margin: 0; }
 .nomic-inspector-panel section h2 { cursor: pointer; }
 .nomic-inspector-panel section h2:hover { background: #f6f6f6; }
