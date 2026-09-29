@@ -1,5 +1,6 @@
 export { createEnvironment } from "./environment.js"
+export { default as reconciler } from "./reconciler.js"
 export { createHandle, field, fromDoc, isHandle, walk } from "./handle.js"
-export { basePath, contentOf, headless, isDocUrl, pinOf, splitTarget } from "./urls.js"
+export { basePath, contentOf, headless, isDocUrl, isPinned, pinOf, splitTarget } from "./urls.js"
 export { docAt, entriesAt, folderAt } from "./folder.js"
-export { fileText, fileUrl, mount, resolve } from "./mount.js"
+export { fileText, fileUrl, resolve } from "./mount.js"

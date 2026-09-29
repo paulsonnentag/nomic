@@ -1,7 +1,7 @@
 {
   "provides": {
-    "canvas": { "module": "./src/canvas.js", "supportedDataType": "canvas" },
-    "pointer": { "module": "./src/pointer.js", "supportedDataType": "canvas" },
-    "line-tool": { "module": "./src/line-tool.js", "supportedDataType": "canvas" }
+    "canvas": { "module": "./src/canvas.js" },
+    "pointer": { "module": "./src/pointer.js" },
+    "line-tool": { "module": "./src/line-tool.js" }
   }
 }

@@ -1,9 +1,10 @@
 /**
  * Keeps the pointers of `surface` in step with DOM events on the view's own
  * `dom`. Follows it: when another element becomes the view's, the listeners
- * move to it. Does nothing until the surface is there.
+ * move to it. For any view with a surface: inactive until one is there.
  */
 export default function pointer(env) {
+  if (!env.read("surface")) return
   const surface = env.get("surface")
   const down = new Set()
   let dom

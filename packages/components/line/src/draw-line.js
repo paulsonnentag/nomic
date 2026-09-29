@@ -1,8 +1,9 @@
 import { render } from "solid-js/web"
 import html from "solid-js/html"
 
-/** Puts at `dom` a drawing of `data.points` as a polyline from the origin; the canvas places it. */
+/** Puts at `dom` a drawing of `data.points` as a polyline from the origin; the canvas places it. For line documents. */
 export default function drawLine(env) {
+  if (env.read("data/@patchwork/type") !== "line") return
   const { useHandle } = env.get("imports/solid").value
   const data = env.get("data")
   const dom = document.createElement("div")

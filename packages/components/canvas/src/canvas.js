@@ -6,9 +6,10 @@ import html from "solid-js/html"
  * The canvas: puts at `dom` a fixed-size box that clips its content and shows
  * every entry of `data.shapes` in it, each placed at its `x, y` — the shape's
  * own behaviors draw it from there — and puts `surface`, the live state of the
- * pointers on the box.
+ * pointers on the box. For canvas documents.
  */
 export default function canvas(env) {
+  if (env.read("data/@patchwork/type") !== "canvas") return
   const { field } = env.get("imports/core").value
   const { View, useHandle } = env.get("imports/solid").value
   const data = env.get("data")

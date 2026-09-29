@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "core": "automerge:xydACSi9H5N4GQqH9yttXJjSeEb/src/index.js",
+    "inspector": "automerge:3Pgi9iT7U95ZYbngnthtp3jjoaaY/src/shared.js",
+    "solid": "automerge:4BTD18NiXDz41hGaJWDd7UV7ihdU/src/index.js"
+  }
+}

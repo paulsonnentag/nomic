@@ -1,9 +1,11 @@
 /**
  * A press on the canvas starts a line at the pointer; every move while the
  * button is held appends a point. Each pointer draws its own line, so
- * `drawing` maps pointer ids to the line they are extending. Waits for `surface`.
+ * `drawing` maps pointer ids to the line they are extending. For canvas
+ * documents with a surface: inactive until one is there.
  */
 export default function lineTool(env) {
+  if (env.read("data/@patchwork/type") !== "canvas" || !env.read("surface")) return
   const data = env.get("data")
   const drawing = env.put("drawing", {})
 

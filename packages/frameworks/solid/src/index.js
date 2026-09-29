@@ -3,15 +3,14 @@ import { render } from "solid-js/web"
 
 /** A library: instantiated with a layer holding its imports. */
 export default function solid(env) {
-  const { docAt, mount } = env.get("imports/core").value
-
   /**
-   * Shows a document: forks the environment, puts the document's handle at
-   * `data`, and mounts the `loader` package, which decides what else the view
-   * gets. The view's element is whatever a behavior puts at `dom` in the view
-   * itself (not an enclosing view's); it is shown inside a stable wrapper and
-   * swapped when the visible `dom` changes (another behavior's element chosen,
-   * or the behavior gone). Destroys the fork when Solid disposes the component.
+   * Shows a document: forks the environment and puts the document's handle at
+   * `data`. The behaviors requested above the fork attach to it and decide for
+   * themselves whether they apply. The view's element is whatever a behavior
+   * puts at `dom` in the view itself (not an enclosing view's); it is shown
+   * inside a stable wrapper and swapped when the visible `dom` changes (another
+   * behavior's element chosen, or the behavior gone). Destroys the fork when
+   * Solid disposes the component.
    */
   function View(props) {
     const wrapper = document.createElement("div")
@@ -21,7 +20,6 @@ export default function solid(env) {
     const stop = view.own("dom").subscribe((dom) => {
       if (dom instanceof Node) wrapper.replaceChildren(dom)
     })
-    mountLoader(view).catch(console.error)
     onCleanup(() => {
       stop()
       view.destroy()
@@ -32,13 +30,6 @@ export default function solid(env) {
   /** Renders a view of `data` into `element`; returns the dispose function. */
   function mountRoot(env, data, element) {
     return render(() => View({ env, data }), element)
-  }
-
-  async function mountLoader(view) {
-    const repo = view.get("repo").value
-    const url = await docAt(repo, view.get("packages").value, "loader")
-    if (!url) throw new Error("no loader package")
-    await mount(view, url)
   }
 
   return { View, useHandle, mountRoot }

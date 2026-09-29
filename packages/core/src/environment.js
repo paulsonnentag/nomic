@@ -10,7 +10,13 @@ export function createEnvironment() {
  * `imports/core`, whose lookup reaches into the bound value. Forks see their
  * parent's bindings and can shadow them. Behaviors attach to an environment and
  * put bindings into it; every put made by a behavior is attributed to it and
- * dropped when it detaches. When several behaviors put the same key here, all
+ * dropped when it detaches. Code that is not a behavior writes through `as`, so
+ * its puts are attributed to its file too. A binding at `behaviors/<package url>` is a request
+ * for that package's behaviors here and in every fork below, served by the
+ * `reconciler`; it is how behaviors add behaviors. A behavior decides for itself whether it applies:
+ * what it `read`s is tracked, and it is rerun when any of it changes, so one
+ * that returned nothing (inactive) can wake up when, say, the data's type or a
+ * binding it waits for appears. When several behaviors put the same key here, all
  * their values are kept as candidates and one is visible: the chosen one, else
  * the last put. There are no defaults: `get` never creates a binding, its
  * handle is empty until someone puts one.
@@ -23,6 +29,7 @@ class Env {
     this.listeners = new Map() // key -> Set<fn>
     this.ownListeners = new Map() // key -> Set<fn>, for `own`: bindings made here only
     this.watchers = new Set()
+    this.trackers = new Set() // fns (key, origin, by) told of every change reaching here, for behaviors' reads
     this.forks = new Set()
     this.attached = [] // [{ behavior, meta, by, view, detach, info }]
     this.destroyed = false
@@ -104,6 +111,17 @@ class Env {
     return this.set(key, isHandle(value) ? value : createHandle(value), undefined)
   }
 
+  /**
+   * This environment as the file at `by` (its pinned url) writes to it: puts,
+   * and the bindings of layers made through it, are attributed to the file, so
+   * they show who made them like a behavior's do. For the code that is not a
+   * behavior — bootstrap, the reconciler. Nothing is tracked or torn down.
+   */
+  as(by) {
+    const none = () => {}
+    return attributed(this, by, none, (key) => this.lookup(key), none, none)
+  }
+
   /** Makes the candidate put at `key` by `by` the visible one; `undefined` goes back to the last put. */
   choose(key, by) {
     const slot = this.slots.get(key)
@@ -116,7 +134,11 @@ class Env {
 
   // -- behaviors --
 
-  /** Attaches `behavior`; `meta` ({ package, name }) says where it came from, for `inspect`. */
+  /**
+   * Attaches `behavior`; `meta` ({ package, name, module }) says where it came
+   * from, for `inspect`. For the framework and `mount`: behaviors do not get
+   * this, they put a request at `behaviors/<url>`.
+   */
   attach(behavior, meta) {
     return this.attachThrough(this, behavior, meta)
   }
@@ -130,9 +152,9 @@ class Env {
     return child
   }
 
-  /** This environment with `bindings` in front of it: reads and writes of those keys stay in the layer, everything else passes through. */
-  layer(bindings) {
-    return new Layer(this, bindings)
+  /** This environment with `bindings` in front of it, attributed to `by`: reads and writes of those keys stay in the layer, everything else passes through. */
+  layer(bindings, by) {
+    return new Layer(this, bindings, by)
   }
 
   destroy() {
@@ -145,6 +167,7 @@ class Env {
     this.listeners.clear()
     this.ownListeners.clear()
     this.watchers.clear()
+    this.trackers.clear()
     this.parent?.forks.delete(this)
     this.parent?.changed()
   }
@@ -157,38 +180,139 @@ class Env {
    * its pin when it was mounted from a package, else by the function's name;
    * the same behavior attaches to an environment once. The attachment is
    * described by a behavior document, a handle on
-   * `{ "@patchwork": { type: "behavior" }, by, name, package, pin, module }`
-   * (what `mount` recorded: the package's headless url, the pin the module was
-   * read at, the manifest name and the module path), so tooling can show it
-   * like any document.
+   * `{ "@patchwork": { type: "behavior" }, by, name, package, module, active, runs, reads, gets, puts, error }`
+   * — what `mount` recorded (the package's pinned url, the manifest name and
+   * the module path; `by` is the module's own pinned url, `package/module`)
+   * and how the last run went: whether it returned a teardown, how often it
+   * has run, what it read (`reads`: key and the value seen), what it got
+   * without tracking and what it put (`gets`, `puts`: key and a live handle),
+   * and what it threw — so tooling can show it like any document.
    */
   attachThrough(view, behavior, meta) {
     if (this.destroyed) return () => {} // behaviors may arrive after the view that wanted them is gone
-    const by = meta ? `${meta.pin}/${meta.module}` : behavior.name || "behavior"
+    const by = meta ? `${meta.package}/${meta.module}` : behavior.name || "behavior"
     if (this.attached.some((a) => a.by === by)) throw new Error(`"${by}" is already attached here`)
     const info = createHandle({
       "@patchwork": { type: "behavior" },
       by,
       name: meta?.name ?? behavior.name,
       package: meta?.package,
-      pin: meta?.pin,
       module: meta?.module,
+      active: false,
+      runs: 0,
+      reads: [],
+      gets: [],
+      puts: [],
     })
     let teardown
     let detached = false
-    const detach = () => {
-      if (detached) return
-      detached = true
-      teardown?.()
+    let reads = new Map() // key -> the value `read` returned in the current run
+    let gets = new Map() // key -> the live handle `get` or `own` returned since the run started
+    let puts = new Map() // key -> the handle put since the run started
+    let running = false
+    let scheduled = false
+    let burst = 0 // reruns since the last macrotask, to catch behaviors that feed each other
+    let cooling
+    const dropPuts = () => {
       for (const env of new Set([this, view])) {
         for (const [key, slot] of [...env.slots]) if (slot.candidates.has(by)) env.drop(key, by)
       }
+    }
+    /** A tracked read: the value visible at `key` from the view, remembered so a change to it reruns the behavior. */
+    const read = (key) => {
+      const value = view.lookup(key)
+      reads.set(key, value)
+      return value
+    }
+    /** An untracked get, remembered on the document; `handle` is the live handle it returned. */
+    const got = (key, handle) => {
+      gets.set(key, handle)
+      if (!running) {
+        info.change((d) => {
+          d.gets = entries(gets)
+        })
+      }
+    }
+    /** A put, remembered on the document. Puts may come after the run, from callbacks; those update it right away. */
+    const wrote = (key, handle) => {
+      puts.set(key, handle)
+      if (!running) {
+        info.change((d) => {
+          d.puts = entries(puts)
+        })
+      }
+    }
+    /**
+     * Calls the behavior: the previous run is torn down and its puts dropped
+     * first, so a run starts clean; what it read, got and put, whether it
+     * returned a teardown (it is active then) and any error go on the document.
+     */
+    const run = () => {
+      teardown?.()
+      teardown = undefined
+      dropPuts()
+      reads = new Map()
+      gets = new Map()
+      puts = new Map()
+      let error
+      running = true
+      try {
+        teardown = behavior(attributed(view, by, detach, read, got, wrote))
+      } catch (e) {
+        error = e
+        console.error(`[environment] ${by} failed`, e)
+      }
+      running = false
+      info.change((d) => {
+        d.runs += 1
+        d.active = teardown !== undefined
+        d.reads = [...reads].map(([key, value]) => ({ key, value }))
+        d.gets = entries(gets)
+        d.puts = entries(puts)
+        if (error === undefined) delete d.error
+        else d.error = String(error?.message ?? error)
+      })
+    }
+    /** Told of every change reaching the view; reruns once the change settles when something read now differs, unless the behavior itself made it. */
+    const tracker = (key, origin, changedBy) => {
+      if (detached || scheduled || changedBy === by) return
+      for (const [readKey, value] of reads) {
+        if (!covers(key, readKey)) continue
+        if (view !== origin && view.shadows(readKey, origin)) continue
+        if (view.lookup(readKey) === value) continue
+        scheduled = true
+        queueMicrotask(() => {
+          scheduled = false
+          if (detached) return
+          if (++burst > RERUNS) {
+            console.error(`[environment] ${by} keeps rerunning; left as is until the next change`)
+            burst = 0
+            return
+          }
+          cooling ??= setTimeout(() => {
+            burst = 0
+            cooling = undefined
+          })
+          run()
+          this.changed()
+        })
+        return
+      }
+    }
+    const detach = () => {
+      if (detached) return
+      detached = true
+      view.trackers.delete(tracker)
+      clearTimeout(cooling)
+      teardown?.()
+      dropPuts()
       this.attached = this.attached.filter((a) => a !== entry)
       this.changed()
     }
     const entry = { behavior, meta, by, view, detach, info }
     this.attached.push(entry)
-    teardown = behavior(attributed(view, by, detach))
+    view.trackers.add(tracker)
+    run()
     this.changed()
     return detach
   }
@@ -211,7 +335,7 @@ class Env {
     // Subscribing forwards every change of the value into the environment while
     // it is the visible one, and the first call is the notification for this set.
     candidate.stop = handle.subscribe(() => {
-      if (this.winner(slot)[1] === candidate) this.notify(key)
+      if (this.winner(slot)[1] === candidate) this.notify(key, by)
     })
     this.changed()
     return this.live(key)
@@ -295,12 +419,13 @@ class Env {
       if (slot.chosen === by) slot.chosen = undefined
     }
     if (slot.candidates.size === 0) this.slots.delete(key)
-    this.notify(key)
+    this.notify(key, rest[0])
     this.changed()
   }
 
-  notify(key) {
-    this.fire(key, this)
+  /** Tells listeners and trackers that what is at `key` changed; `by` is the attachment whose put or drop it was, if one. */
+  notify(key, by) {
+    this.fire(key, this, by)
   }
 
   /** Tells the watchers here and above that the structure changed. */
@@ -312,8 +437,9 @@ class Env {
   /**
    * Tells the listeners at `key` and below it, here and in every fork that does
    * not shadow them on the way to `origin`; `own` listeners only at the origin.
+   * Trackers hear of every change, including one that leaves nothing at the key.
    */
-  fire(key, origin) {
+  fire(key, origin, by) {
     for (const [listened, fns] of this.listeners) {
       if (!covers(key, listened)) continue
       if (this !== origin && this.shadows(listened, origin)) continue
@@ -327,7 +453,8 @@ class Env {
         if (value !== undefined) for (const fn of [...fns]) fn(value)
       }
     }
-    for (const fork of this.forks) fork.fire(key, origin)
+    for (const tracker of [...this.trackers]) tracker(key, origin, by)
+    for (const fork of this.forks) fork.fire(key, origin, by)
   }
 
   /** Whether an environment between here (inclusive) and `origin` (exclusive) binds `key` or a prefix of it. */
@@ -343,14 +470,14 @@ class Env {
  * attach and fork goes to the environment behind it.
  */
 class Layer extends Env {
-  constructor(base, bindings) {
+  constructor(base, bindings, by) {
     super(base)
     this.kind = "layer"
     this.base = base
     this.keys = Object.keys(bindings)
     base.forks.add(this) // so changes behind the layer reach listeners in front of it
     for (const [key, value] of Object.entries(bindings)) {
-      super.set(key, isHandle(value) ? value : createHandle(value), undefined)
+      super.set(key, isHandle(value) ? value : createHandle(value), by)
     }
   }
 
@@ -378,8 +505,8 @@ class Layer extends Env {
     return this.base.fork()
   }
 
-  layer(bindings) {
-    return this.base.layer(bindings)
+  layer(bindings, by) {
+    return this.base.layer(bindings, by)
   }
 
   destroy() {
@@ -390,9 +517,14 @@ class Layer extends Env {
 
 /**
  * The environment as a behavior sees it: the same values and forks, but its
- * puts are attributed to the behavior, and destroying it detaches the behavior.
+ * puts (and the layers it makes) are attributed to the behavior, `read` is
+ * tracked, gets and puts are recorded on its document, and destroying it
+ * detaches the behavior. There is no `attach`: a behavior asks for another by
+ * putting a package url at `behaviors/<url>` (see `reconciler`), so the request
+ * is attributed like any binding and dropped with it. Also what `as` gives
+ * code that is not a behavior, with the tracking left out.
  */
-function attributed(env, by, detach) {
+function attributed(env, by, detach, read, got, wrote) {
   return {
     get parent() {
       return env.parent
@@ -400,18 +532,38 @@ function attributed(env, by, detach) {
     get behaviors() {
       return env.behaviors
     },
-    get: (key) => env.live(key),
-    own: (key) => env.own(key),
-    put: (key, value) => env.set(key, isHandle(value) ? value : createHandle(value), by),
+    by, // what its puts are attributed to: the file's pinned url
+    read,
+    get: (key) => {
+      const handle = env.live(key)
+      got(key, handle)
+      return handle
+    },
+    own: (key) => {
+      const handle = env.own(key)
+      got(key, handle)
+      return handle
+    },
+    put: (key, value) => {
+      const handle = isHandle(value) ? value : createHandle(value)
+      wrote(key, handle)
+      return env.set(key, handle, by)
+    },
     entries: () => env.entries(),
-    attach: (behavior, meta) => env.attach(behavior, meta),
     fork: () => env.fork(),
-    layer: (bindings) => env.layer(bindings),
+    layer: (bindings) => env.layer(bindings, by),
     inspect: () => env.inspect(),
     watch: (fn) => env.watch(fn),
     choose: (key, by) => env.choose(key, by),
     destroy: detach,
   }
+}
+
+const RERUNS = 100 // reruns of one behavior within a macrotask before it is left alone
+
+/** A map of key → handle as the list a behavior document carries. */
+function entries(map) {
+  return [...map].map(([key, handle]) => ({ key, handle }))
 }
 
 /** Whether a binding at `prefix` covers `key`: the same key, or a path below it. */

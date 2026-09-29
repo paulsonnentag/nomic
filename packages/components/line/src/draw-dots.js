@@ -4,9 +4,11 @@ import html from "solid-js/html"
 /**
  * Puts at `dom` another drawing of `data.points`: a dot per point, from the
  * origin. An alternative to `draw-line` for the same view, so both are
- * candidates at `dom` and the inspector can pick which one shows.
+ * candidates at `dom` and the inspector can pick which one shows. For line
+ * documents.
  */
 export default function drawDots(env) {
+  if (env.read("data/@patchwork/type") !== "line") return
   const { useHandle } = env.get("imports/solid").value
   const data = env.get("data")
   const dom = document.createElement("div")

@@ -5,6 +5,11 @@ export function headless(url) {
   return url.split("#")[0]
 }
 
+/** Whether `url` carries heads. */
+export function isPinned(url) {
+  return url.includes("#")
+}
+
 /** Whether `value` is an automerge url, pinned or not. */
 export function isDocUrl(value) {
   return typeof value === "string" && /^automerge:[0-9A-Za-z]+(#[0-9A-Za-z|]+)?$/.test(value)
