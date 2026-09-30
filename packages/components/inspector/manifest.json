@@ -1,5 +1,0 @@
-{
-  "provides": {
-    "panel": { "module": "./src/panel.js" }
-  }
-}

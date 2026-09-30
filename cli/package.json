@@ -10,7 +10,6 @@
     "node": ">=24"
   },
   "dependencies": {
-    "pushwork": "*",
     "commander": "^15.0.0",
     "@jspm/generator": "^2.16.3"
   },

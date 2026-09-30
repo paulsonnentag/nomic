@@ -1,8 +1,0 @@
-{
-  "imports": {
-    "core": "automerge:xydACSi9H5N4GQqH9yttXJjSeEb/src/index.js",
-    "hljs": "https://ga.jspm.io/npm:highlight.js@11.12.0/es/core.js",
-    "hljs-javascript": "https://ga.jspm.io/npm:highlight.js@11.12.0/es/languages/javascript.js",
-    "solid": "automerge:4BTD18NiXDz41hGaJWDd7UV7ihdU/src/index.js"
-  }
-}

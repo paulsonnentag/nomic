@@ -1,7 +1,0 @@
-{
-  "provides": {
-    "canvas": { "module": "./src/canvas.js" },
-    "pointer": { "module": "./src/pointer.js" },
-    "line-tool": { "module": "./src/line-tool.js" }
-  }
-}

@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
 
 export function readJson<T = any>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8"))
@@ -17,41 +17,18 @@ export function sortKeys<T extends { [key: string]: unknown }>(object: T): T {
   ) as T
 }
 
-/** Directories under `base` that contain a manifest.json, as posix paths relative to `base`. Packages do not nest. */
-export function findPackages(base: string): string[] {
-  const found: string[] = []
-  walk(base, "")
-  return found
-
-  function walk(dir: string, path: string) {
-    if (existsSync(join(dir, "manifest.json"))) {
-      found.push(path)
-      return
-    }
-    for (const name of readdirSync(dir).sort()) {
-      if (name.startsWith(".") || name === "node_modules") continue
-      const child = join(dir, name)
-      if (statSync(child).isDirectory()) walk(child, path ? `${path}/${name}` : name)
-    }
-  }
-}
-
-/** The nearest ancestor of `dir` (inclusive) that holds a `.pushwork/` directory; undefined if none. */
+/**
+ * The packages checkout `dir` is in: the nearest ancestor (inclusive) holding
+ * an importmap.json, else the nearest holding a `.pushwork/` directory (a
+ * checkout with no map yet). Undefined if neither.
+ */
 export function checkoutRootOf(dir: string): string | undefined {
-  for (let current = resolve(dir); ; current = dirname(current)) {
-    if (existsSync(join(current, ".pushwork"))) return current
-    if (dirname(current) === current) return undefined
-  }
+  return ancestorWith(dir, "importmap.json") ?? ancestorWith(dir, ".pushwork")
 }
 
-/** The nearest ancestor of `dir` (inclusive) that holds a `manifest.json`; undefined if none. */
-export function packageRootOf(dir: string): string | undefined {
+function ancestorWith(dir: string, name: string): string | undefined {
   for (let current = resolve(dir); ; current = dirname(current)) {
-    if (existsSync(join(current, "manifest.json"))) return current
+    if (existsSync(join(current, name))) return current
     if (dirname(current) === current) return undefined
   }
-}
-
-export function posixRelative(from: string, to: string): string {
-  return relative(from, to).split("\\").join("/")
 }

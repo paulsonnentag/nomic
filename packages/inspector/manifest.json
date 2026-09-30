@@ -1,5 +1,0 @@
-{
-  "provides": {
-    "inspector": { "module": "./src/index.js" }
-  }
-}

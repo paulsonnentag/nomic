@@ -1,6 +1,0 @@
-{
-  "provides": {
-    "draw-dots": { "module": "./src/draw-dots.js" },
-    "draw-line": { "module": "./src/draw-line.js" }
-  }
-}

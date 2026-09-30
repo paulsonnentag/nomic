@@ -1,6 +1,0 @@
-{
-  "provides": {
-    "show-graph": { "module": "./src/show-graph.js" },
-    "show-source": { "module": "./src/show-source.js" }
-  }
-}
