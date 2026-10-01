@@ -176,8 +176,11 @@ obtained through its facade records the key. After the run, the behavior
 follows each recorded key with `get(key).subscribe`; when a value differs from
 the one recorded, a rerun is scheduled: once per microtask, the teardown is
 called, the behavior's puts are dropped, and it is run again with fresh
-tracking. Reads made later, inside callbacks and event handlers, are not
-tracked; a behavior follows those by subscribing, which it does anyway.
+tracking. Reads made inside callbacks and event handlers are not tracked, and
+that holds for a `subscribe` callback even when it fires synchronously during
+the run: `subscribe` calls back right away, and what that callback reads is
+the callback's business, not the run's. A behavior follows those values by
+subscribing, which it does anyway.
 
 Values are compared by identity, so a handle whose `change` mutates in place
 (a plain value's) does not rerun readers of the whole value, while a document

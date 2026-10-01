@@ -4,7 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Nomic</title>
-    <!-- No import map here: the bootloader injects the externals map, core injects package scopes. -->
+    <!-- No import map here: the bootloader injects the externals map (solid-js and friends). -->
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        font:
+          13px system-ui,
+          sans-serif;
+        overflow: hidden;
+      }
+    </style>
   </head>
   <body>
     <main id="root"></main>
